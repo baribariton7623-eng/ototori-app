@@ -1,20 +1,35 @@
 /**
  * iOS Safariは、Web Audio API(Tone.js)だけで鳴らした音を「サイレントスイッチ」
- * (端末側面のマナーモード切り替え)がオンの間はミュートしてしまうことがある。
- * これは <audio>/<video> 要素の再生("playback"オーディオセッション)を伴わない
- * 場合に起きる既知の挙動で、無音の<audio>要素を再生しておくことで
- * "playback"セッションを有効化し、Web Audio側の音もサイレントスイッチの
- * 影響を受けなくなる。
+ * (端末側面のマナーモード切り替え)がオンの間はミュートしてしまう。
+ * 対策を2段構えで行う:
+ *
+ * 1. Audio Session API(iOS 16.4+ / Safari 16.4+): navigator.audioSession.type を
+ *    'playback' に設定すると、Web Audioがサイレントスイッチの影響を受けなくなる(公式の解決策)。
+ * 2. 旧iOS向けフォールバック: 無音の<audio>要素をループ再生して"playback"
+ *    オーディオセッションを確立する既知の回避策。
  *
  * StartAudioOverlayのタップ(ユーザー操作)内で一度だけ呼び出す想定。
  */
 
-let unlocked = false;
+interface AudioSessionLike {
+  type: string;
+}
 
-function createSilentLoopUrl(): string {
+let unlocked = false;
+// GCで回収されると再生が止まり効果が消えるため、モジュールスコープで参照を保持し続ける
+let silentAudio: HTMLAudioElement | null = null;
+
+function setPlaybackAudioSession(): void {
+  const session = (navigator as Navigator & { audioSession?: AudioSessionLike }).audioSession;
+  if (session) {
+    session.type = 'playback';
+  }
+}
+
+function createSilentWavUrl(): string {
   const sampleRate = 8000;
-  const numSamples = 1;
-  const dataSize = numSamples * 2; // 16-bit mono, 1サンプル=無音
+  const numSamples = sampleRate; // 1秒の無音(短すぎるループはブラウザ実装で不安定になりうる)
+  const dataSize = numSamples * 2; // 16-bit mono
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
   const writeString = (offset: number, value: string) => {
@@ -41,13 +56,15 @@ function createSilentLoopUrl(): string {
 export function unlockIosAudioPlaybackSession(): void {
   if (unlocked || typeof Audio === 'undefined') return;
   unlocked = true;
+
+  setPlaybackAudioSession();
+
   try {
-    const audio = new Audio(createSilentLoopUrl());
-    audio.loop = true;
-    audio.volume = 0;
+    silentAudio = new Audio(createSilentWavUrl());
+    silentAudio.loop = true;
     // ユーザー操作の同期的な流れの中で呼ぶことが重要(非同期待機を挟まない)
-    void audio.play().catch(() => {
-      // 対応していない/失敗しても、Tone.js側の再生自体は通常経路で試みられる
+    void silentAudio.play().catch(() => {
+      // 再生が拒否されても、Audio Session API側が効いていれば問題ない
     });
   } catch {
     // Audio自体が使えない環境では何もしない
