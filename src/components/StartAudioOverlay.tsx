@@ -27,11 +27,13 @@ export default function StartAudioOverlay() {
   return (
     <div
       onClick={handleTap}
-      className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/80 text-center"
+      className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-ink/95 px-6 text-center backdrop-blur-sm"
     >
-      <p className="text-3xl">🔊</p>
-      <p className="text-lg font-medium">タップして音取りを開始</p>
-      <p className="max-w-xs text-sm text-gray-400">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent text-4xl shadow-lg">
+        🔊
+      </div>
+      <p className="text-xl font-semibold text-paper">タップして音取りを開始</p>
+      <p className="max-w-xs text-base text-paper/70">
         スマートフォンのブラウザでは、操作なしに音を鳴らすことができません。
       </p>
     </div>

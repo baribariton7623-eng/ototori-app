@@ -26,7 +26,9 @@ export default function FavoriteButton({
     <button
       onClick={handleClick}
       aria-label={isFavorite ? 'お気に入りから削除' : 'お気に入りに追加'}
-      className={`shrink-0 px-3 text-xl ${isFavorite ? 'text-yellow-400' : 'text-gray-600 hover:text-gray-400'}`}
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl transition active:scale-90 ${
+        isFavorite ? 'text-gold' : 'text-ink-faint hover:text-ink-soft'
+      }`}
     >
       {isFavorite ? '★' : '☆'}
     </button>

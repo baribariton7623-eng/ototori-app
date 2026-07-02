@@ -52,21 +52,24 @@ export default function WorkList({ composer, onSelectWork, onRequireLogin }: Wor
     }
   };
 
-  if (error) return <p className="p-4 text-red-400">{error}</p>;
-  if (!index) return <p className="p-4 text-gray-400">読み込み中...</p>;
+  if (error) return <p className="p-6 text-base text-red-700">{error}</p>;
+  if (!index) return <p className="p-6 text-base text-ink-soft">読み込み中...</p>;
 
   const works = index.works.filter((work) => work.composer === composer);
   if (works.length === 0) {
-    return <p className="p-4 text-gray-400">この作曲家の収録曲がまだありません</p>;
+    return <p className="p-6 text-base text-ink-soft">この作曲家の収録曲がまだありません</p>;
   }
 
   return (
-    <ul className="divide-y divide-gray-800">
+    <ul className="space-y-2 px-4 py-4 sm:px-6">
       {works.map((work) => (
-        <li key={work.id} className="flex items-center hover:bg-gray-800">
-          <button onClick={() => onSelectWork(work.id)} className="flex-1 px-4 py-4 text-left">
-            <div className="font-medium">{work.title}</div>
-            <div className="text-sm text-gray-400">{work.composer}</div>
+        <li
+          key={work.id}
+          className="flex items-center gap-1 rounded-2xl border border-hairline bg-card pr-2 shadow-sm transition hover:border-accent/40 hover:shadow-md"
+        >
+          <button onClick={() => onSelectWork(work.id)} className="flex-1 px-5 py-4 text-left">
+            <div className="text-lg font-semibold text-ink">{work.title}</div>
+            <div className="mt-0.5 text-sm text-ink-soft">{work.composer}</div>
           </button>
           <FavoriteButton
             isFavorite={favoriteIds.has(work.id)}

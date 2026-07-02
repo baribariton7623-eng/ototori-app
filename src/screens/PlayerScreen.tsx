@@ -93,8 +93,8 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
   );
   const { isSupported: wakeLockSupported } = useWakeLock(isPlaying);
 
-  if (error) return <p className="p-4 text-red-400">{error}</p>;
-  if (!data || !engine) return <p className="p-4 text-gray-400">読み込み中...</p>;
+  if (error) return <p className="p-6 text-base text-red-700">{error}</p>;
+  if (!data || !engine) return <p className="p-6 text-base text-ink-soft">読み込み中...</p>;
 
   const { movement } = data;
   const minMeasure = engine.minMeasure;
@@ -149,13 +149,13 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
   };
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4 p-4 sm:p-6">
       <StartAudioOverlay />
-      <div>
-        <h2 className="text-xl font-semibold">{movement.title}</h2>
-        <p className="text-sm text-gray-400">{data.workTitle}</p>
+      <div className="px-1">
+        <p className="text-sm text-ink-soft">{data.workTitle}</p>
+        <h2 className="text-2xl font-bold tracking-tight text-ink">{movement.title}</h2>
         {!wakeLockSupported && (
-          <p className="mt-1 text-xs text-amber-500">
+          <p className="mt-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent-dark">
             ※このブラウザでは画面ロック時の自動停止を防止できません。再生中は画面を点けたままにしてください。
           </p>
         )}

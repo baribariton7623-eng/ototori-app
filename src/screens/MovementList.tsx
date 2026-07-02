@@ -17,28 +17,40 @@ export default function MovementList({ workId, onSelectMovement }: MovementListP
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  if (error) return <p className="p-4 text-red-400">{error}</p>;
-  if (!index) return <p className="p-4 text-gray-400">読み込み中...</p>;
+  if (error) return <p className="p-6 text-base text-red-700">{error}</p>;
+  if (!index) return <p className="p-6 text-base text-ink-soft">読み込み中...</p>;
 
   const work = index.works.find((w) => w.id === workId);
-  if (!work) return <p className="p-4 text-red-400">作品が見つかりません</p>;
+  if (!work) return <p className="p-6 text-base text-red-700">作品が見つかりません</p>;
 
   return (
-    <ul className="divide-y divide-gray-800">
-      {work.movements.map((movement) => (
-        <li key={movement.id}>
-          <button
-            onClick={() => onSelectMovement(movement.id)}
-            className="w-full px-4 py-4 text-left hover:bg-gray-800"
-          >
-            <div className="font-medium">{movement.title}</div>
-            <div className="text-sm text-gray-400">
-              {movement.timeSignature.beats}/{movement.timeSignature.beatType} ・ ♩=
-              {movement.baseBpm} ・ {movement.measureCount}小節 ・ {movement.partLabels.length}パート
-            </div>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="px-4 py-4 sm:px-6">
+      <div className="mb-3 px-1">
+        <div className="text-sm text-ink-soft">{work.composer}</div>
+        <div className="text-xl font-semibold text-ink">{work.title}</div>
+      </div>
+      <ul className="space-y-2">
+        {work.movements.map((movement) => (
+          <li key={movement.id}>
+            <button
+              onClick={() => onSelectMovement(movement.id)}
+              className="flex w-full items-center justify-between rounded-2xl border border-hairline bg-card px-5 py-4 text-left shadow-sm transition hover:border-accent/40 hover:shadow-md active:scale-[0.99]"
+            >
+              <div>
+                <div className="text-lg font-semibold text-ink">{movement.title}</div>
+                <div className="mt-0.5 text-sm text-ink-soft">
+                  {movement.timeSignature.beats}/{movement.timeSignature.beatType} ・ ♩=
+                  {movement.baseBpm} ・ {movement.measureCount}小節 ・ {movement.partLabels.length}
+                  パート
+                </div>
+              </div>
+              <span className="text-xl text-ink-faint" aria-hidden>
+                ›
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

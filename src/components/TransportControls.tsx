@@ -41,30 +41,31 @@ export default function TransportControls({
   };
 
   return (
-    <div className="space-y-4 rounded-lg bg-gray-900 p-4">
-      <div className="flex items-center justify-center gap-4">
+    <div className="space-y-5 rounded-2xl border border-hairline bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-center gap-3 sm:gap-5">
         <button
           onClick={() => onSkip(-SKIP_MEASURES)}
-          className="rounded-full bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700"
+          className="flex h-12 items-center justify-center rounded-full bg-paper-soft px-4 text-sm font-medium text-ink-soft transition hover:bg-hairline active:scale-95"
         >
-          ◀◀ {SKIP_MEASURES}小節
+          ◀◀ {SKIP_MEASURES}
         </button>
         <button
           onClick={onTogglePlay}
-          className="rounded-full bg-indigo-600 px-6 py-3 text-lg font-semibold hover:bg-indigo-500"
+          aria-label={isPlaying ? '一時停止' : '再生'}
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-2xl text-paper shadow-md transition hover:bg-accent-dark active:scale-95"
         >
-          {isPlaying ? '一時停止' : '再生'}
+          {isPlaying ? '❚❚' : '▶'}
         </button>
         <button
           onClick={() => onSkip(SKIP_MEASURES)}
-          className="rounded-full bg-gray-800 px-4 py-2 text-sm hover:bg-gray-700"
+          className="flex h-12 items-center justify-center rounded-full bg-paper-soft px-4 text-sm font-medium text-ink-soft transition hover:bg-hairline active:scale-95"
         >
-          {SKIP_MEASURES}小節 ▶▶
+          {SKIP_MEASURES} ▶▶
         </button>
       </div>
 
       <div>
-        <div className="mb-1 flex justify-between text-sm text-gray-400">
+        <div className="mb-2 flex justify-between text-sm font-medium text-ink-soft">
           <span>小節 {currentMeasure}</span>
           <span>全{measureCount}小節</span>
         </div>
@@ -79,15 +80,15 @@ export default function TransportControls({
             onSeek(value);
           }}
           onPointerUp={() => setSeekDraft(null)}
-          className="w-full"
+          className="h-11 w-full [accent-color:var(--color-accent)]"
           aria-label="小節シーク"
         />
       </div>
 
       <div>
-        <div className="mb-1 flex items-center justify-between text-sm text-gray-400">
+        <div className="mb-2 flex items-center justify-between text-sm font-medium text-ink-soft">
           <span>テンポ</span>
-          <span className="flex items-center gap-1 text-gray-200">
+          <span className="flex items-center gap-1.5 text-base text-ink">
             <span className="tabular-nums">♩ =</span>
             <input
               type="number"
@@ -95,7 +96,7 @@ export default function TransportControls({
               max={maxBpm}
               value={currentBpm}
               onChange={(e) => handleBpmChange(Number(e.target.value))}
-              className="w-14 rounded bg-gray-800 px-1 py-0.5 text-right tabular-nums"
+              className="h-9 w-16 rounded-lg border border-hairline bg-paper px-2 text-right text-base tabular-nums outline-none focus:border-accent"
               aria-label="テンポ(BPM、数値入力)"
             />
           </span>
@@ -106,7 +107,7 @@ export default function TransportControls({
           max={maxBpm}
           value={currentBpm}
           onChange={(e) => handleBpmChange(Number(e.target.value))}
-          className="w-full"
+          className="h-11 w-full [accent-color:var(--color-accent)]"
           aria-label="テンポ(BPM)"
         />
       </div>

@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+@theme {
+  /* コンサートプログラムを思わせる、クリーム紙×ワインレッドの上品な配色 */
+  --color-paper: #faf7f2;
+  --color-paper-soft: #f2ede3;
+  --color-card: #ffffff;
+  --color-ink: #2a2420;
+  --color-ink-soft: #6b6058;
+  --color-ink-faint: #a39a8f;
+  --color-hairline: #e6ddd0;
+  --color-accent: #7c2d3e;
+  --color-accent-dark: #5c1f2c;
+  --color-accent-soft: #f6e9ec;
+  --color-gold: #a8843f;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}

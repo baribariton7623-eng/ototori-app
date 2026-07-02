@@ -1,11 +1,14 @@
-import { useState } from 'react';
-import AuthPanel from './components/AuthPanel';
+import { lazy, Suspense, useState } from 'react';
 import Header from './components/Header';
 import { useAuth } from './hooks/useAuth';
 import ComposerList from './screens/ComposerList';
 import MovementList from './screens/MovementList';
-import PlayerScreen from './screens/PlayerScreen';
 import WorkList from './screens/WorkList';
+
+// Tone.js(再生画面)とSupabase-jsを使う認証パネルは重量級の依存を持つため、
+// 実際に必要になるまでバンドルを取得しない(初回読み込み速度の改善)。
+const PlayerScreen = lazy(() => import('./screens/PlayerScreen'));
+const AuthPanel = lazy(() => import('./components/AuthPanel'));
 
 type Screen =
   | { name: 'composers' }
@@ -31,7 +34,7 @@ export default function App() {
   const openAuthPanel = () => setAuthPanelOpen(true);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950 text-gray-100">
+    <div className="flex min-h-screen flex-col bg-paper text-ink">
       <Header
         title={SCREEN_TITLES[current.name]}
         onBack={stack.length > 1 ? pop : undefined}
@@ -39,7 +42,7 @@ export default function App() {
           isAuthEnabled ? (
             <button
               onClick={openAuthPanel}
-              className="shrink-0 rounded-full bg-gray-800 px-3 py-1.5 text-sm hover:bg-gray-700"
+              className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-accent px-4 text-sm font-medium text-paper shadow-sm transition hover:bg-accent-dark active:scale-95"
             >
               {user ? (user.email?.[0]?.toUpperCase() ?? 'U') : 'ログイン'}
             </button>
@@ -47,29 +50,45 @@ export default function App() {
         }
       />
       <main className="flex-1">
-        {current.name === 'composers' && (
-          <ComposerList onSelectComposer={(composer) => push({ name: 'works', composer })} />
-        )}
-        {current.name === 'works' && (
-          <WorkList
-            composer={current.composer}
-            onSelectWork={(workId) => push({ name: 'movements', workId })}
-            onRequireLogin={openAuthPanel}
-          />
-        )}
-        {current.name === 'movements' && (
-          <MovementList
-            workId={current.workId}
-            onSelectMovement={(movementId) =>
-              push({ name: 'player', workId: current.workId, movementId })
-            }
-          />
-        )}
-        {current.name === 'player' && (
-          <PlayerScreen workId={current.workId} movementId={current.movementId} />
-        )}
+        <div className="mx-auto w-full max-w-2xl">
+          {current.name === 'composers' && (
+            <ComposerList onSelectComposer={(composer) => push({ name: 'works', composer })} />
+          )}
+          {current.name === 'works' && (
+            <WorkList
+              composer={current.composer}
+              onSelectWork={(workId) => push({ name: 'movements', workId })}
+              onRequireLogin={openAuthPanel}
+            />
+          )}
+          {current.name === 'movements' && (
+            <MovementList
+              workId={current.workId}
+              onSelectMovement={(movementId) =>
+                push({ name: 'player', workId: current.workId, movementId })
+              }
+            />
+          )}
+          {current.name === 'player' && (
+            <Suspense fallback={<ScreenLoadingFallback />}>
+              <PlayerScreen workId={current.workId} movementId={current.movementId} />
+            </Suspense>
+          )}
+        </div>
       </main>
-      {authPanelOpen && <AuthPanel onClose={() => setAuthPanelOpen(false)} />}
+      {authPanelOpen && (
+        <Suspense fallback={null}>
+          <AuthPanel onClose={() => setAuthPanelOpen(false)} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+
+function ScreenLoadingFallback() {
+  return (
+    <div className="flex justify-center p-10">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-hairline border-t-accent" />
     </div>
   );
 }
