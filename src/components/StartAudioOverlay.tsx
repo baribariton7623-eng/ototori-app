@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Tone from 'tone';
+import { unlockIosAudioPlaybackSession } from '../audio/iosAudioUnlock';
 
 /**
  * iOS Safari等はユーザー操作なしに音を出せないため、画面全体を覆う
@@ -20,6 +21,8 @@ export default function StartAudioOverlay() {
   if (ready) return null;
 
   const handleTap = async () => {
+    // ユーザー操作の同期的な流れの中で先に呼ぶ(iOS Safariのサイレントスイッチ対策)
+    unlockIosAudioPlaybackSession();
     await Tone.start();
     setReady(true);
   };
