@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import Header from './components/Header';
 import { useAuth } from './hooks/useAuth';
 import ComposerList from './screens/ComposerList';
@@ -29,8 +29,23 @@ export default function App() {
   const { user, isAuthEnabled } = useAuth();
   const current = stack[stack.length - 1];
 
-  const push = (screen: Screen) => setStack((prev) => [...prev, screen]);
-  const pop = () => setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+  // ブラウザの「戻る」操作(戻るボタン・スワイプジェスチャー)を画面スタックのpopと同期させる。
+  // 画面遷移のたびにhistoryへ1件積み、popstate(=ブラウザの戻る操作)が来たら
+  // スタックを1段戻す。アプリ内の「戻る」ボタンも history.back() を呼ぶことで
+  // 同じ経路(popstateハンドラ)に一本化し、二重管理によるズレを防ぐ。
+  useEffect(() => {
+    const handlePopState = () => {
+      setStack((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const push = (screen: Screen) => {
+    window.history.pushState(null, '');
+    setStack((prev) => [...prev, screen]);
+  };
+  const pop = () => window.history.back();
   const openAuthPanel = () => setAuthPanelOpen(true);
 
   return (
