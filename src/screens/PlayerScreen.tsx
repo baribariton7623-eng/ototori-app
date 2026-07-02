@@ -1,0 +1,188 @@
+import { useEffect, useRef, useState } from 'react';
+import ABRepeatControls from '../components/ABRepeatControls';
+import PartTrack from '../components/PartTrack';
+import StartAudioOverlay from '../components/StartAudioOverlay';
+import TransportControls from '../components/TransportControls';
+import { loadMovement } from '../data/loadMovement';
+import { useAuth } from '../hooks/useAuth';
+import { usePlaybackEngine } from '../hooks/usePlaybackEngine';
+import { useWakeLock } from '../hooks/useWakeLock';
+import { loadMuteSettings, saveMuteSettings } from '../lib/muteSettings';
+import { recordPractice } from '../lib/practiceHistory';
+import type { MovementData } from '../types/music';
+
+interface PlayerScreenProps {
+  workId: string;
+  movementId: string;
+}
+
+interface PartSetting {
+  muted: boolean;
+  volume: number;
+}
+
+export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) {
+  const [data, setData] = useState<MovementData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tempoMultiplier, setTempoMultiplier] = useState(1);
+  const [loopRegion, setLoopRegionState] = useState<{ start: number; end: number } | null>(null);
+  const [partSettings, setPartSettings] = useState<Record<string, PartSetting>>({});
+  const { user } = useAuth();
+  const hasRecordedPracticeRef = useRef(false);
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+    setTempoMultiplier(1);
+    setLoopRegionState(null);
+    hasRecordedPracticeRef.current = false;
+    loadMovement(workId, movementId)
+      .then((movementData) => {
+        setData(movementData);
+        const initial: Record<string, PartSetting> = {};
+        for (const part of movementData.movement.parts) {
+          initial[part.id] = { muted: false, volume: 100 };
+        }
+        setPartSettings(initial);
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [workId, movementId]);
+
+  // ログイン済みなら、保存済みのミュート/音量設定を読み込んで初期値に反映する
+  useEffect(() => {
+    if (!data || !user) return;
+    loadMuteSettings(user.id, workId, movementId).then((saved) => {
+      if (!saved) return;
+      setPartSettings((prev) => {
+        const merged = { ...prev };
+        for (const [partId, setting] of Object.entries(saved)) {
+          if (merged[partId]) merged[partId] = setting;
+        }
+        return merged;
+      });
+    });
+    // data/user が揃うたびに一度だけ実行すればよい(workId/movementIdの変化はdataの変化に含まれる)
+  }, [data, user]);
+
+  // ミュート/音量設定が変わるたびデバウンスして保存する(ログイン時のみ)
+  useEffect(() => {
+    if (!user || !data || Object.keys(partSettings).length === 0) return;
+    clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = setTimeout(() => {
+      saveMuteSettings(user.id, workId, movementId, partSettings);
+    }, 800);
+    return () => clearTimeout(saveDebounceRef.current);
+  }, [partSettings, user, data, workId, movementId]);
+
+  const { engine, isPlaying, currentMeasure, currentNotes, refresh } = usePlaybackEngine(
+    data?.movement ?? null,
+  );
+  const { isSupported: wakeLockSupported } = useWakeLock(isPlaying);
+
+  if (error) return <p className="p-4 text-red-400">{error}</p>;
+  if (!data || !engine) return <p className="p-4 text-gray-400">読み込み中...</p>;
+
+  const { movement } = data;
+  const minMeasure = engine.minMeasure;
+
+  const handleTogglePlay = async () => {
+    if (engine.isPlaying) {
+      engine.pause();
+    } else {
+      await engine.play();
+      if (user && !hasRecordedPracticeRef.current) {
+        hasRecordedPracticeRef.current = true;
+        recordPractice(user.id, workId, movementId);
+      }
+    }
+    refresh();
+  };
+
+  const handleTempoChange = (value: number) => {
+    setTempoMultiplier(value);
+    engine.setTempoMultiplier(value);
+  };
+
+  const handleSeek = (measure: number) => {
+    engine.seekToMeasure(measure);
+    refresh();
+  };
+
+  const handleSkip = (delta: number) => {
+    engine.skipMeasures(delta);
+    refresh();
+  };
+
+  const handleSetLoopRegion = (start: number, end: number) => {
+    engine.setLoopRegion(start, end);
+    setLoopRegionState({ start, end });
+  };
+
+  const handleClearLoop = () => {
+    engine.clearLoop();
+    setLoopRegionState(null);
+  };
+
+  const handleToggleMute = (partId: string) => {
+    const next = !partSettings[partId]?.muted;
+    engine.setPartMuted(partId, next);
+    setPartSettings((prev) => ({ ...prev, [partId]: { ...prev[partId], muted: next } }));
+  };
+
+  const handleVolumeChange = (partId: string, volume: number) => {
+    engine.setPartVolume(partId, volume);
+    setPartSettings((prev) => ({ ...prev, [partId]: { ...prev[partId], volume } }));
+  };
+
+  return (
+    <div className="space-y-4 p-4">
+      <StartAudioOverlay />
+      <div>
+        <h2 className="text-xl font-semibold">{movement.title}</h2>
+        <p className="text-sm text-gray-400">{data.workTitle}</p>
+        {!wakeLockSupported && (
+          <p className="mt-1 text-xs text-amber-500">
+            ※このブラウザでは画面ロック時の自動停止を防止できません。再生中は画面を点けたままにしてください。
+          </p>
+        )}
+      </div>
+
+      <TransportControls
+        isPlaying={isPlaying}
+        onTogglePlay={handleTogglePlay}
+        baseBpm={movement.tempoEvents[0]?.bpm ?? 120}
+        tempoMultiplier={tempoMultiplier}
+        onTempoChange={handleTempoChange}
+        currentMeasure={currentMeasure}
+        minMeasure={minMeasure}
+        measureCount={engine.measureCount}
+        onSeek={handleSeek}
+        onSkip={handleSkip}
+      />
+
+      <ABRepeatControls
+        minMeasure={minMeasure}
+        measureCount={engine.measureCount}
+        currentMeasure={currentMeasure}
+        loopRegion={loopRegion}
+        onSetLoopRegion={handleSetLoopRegion}
+        onClearLoop={handleClearLoop}
+      />
+
+      <div className="space-y-2">
+        {movement.parts.map((part) => (
+          <PartTrack
+            key={part.id}
+            label={part.label}
+            muted={partSettings[part.id]?.muted ?? false}
+            volume={partSettings[part.id]?.volume ?? 100}
+            currentNote={currentNotes[part.id]}
+            onToggleMute={() => handleToggleMute(part.id)}
+            onVolumeChange={(volume) => handleVolumeChange(part.id, volume)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
