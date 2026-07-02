@@ -99,17 +99,22 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
   const { movement } = data;
   const minMeasure = engine.minMeasure;
 
+  const startPlayback = async () => {
+    await engine.play();
+    if (user && !hasRecordedPracticeRef.current) {
+      hasRecordedPracticeRef.current = true;
+      recordPractice(user.id, workId, movementId);
+    }
+    refresh();
+  };
+
   const handleTogglePlay = async () => {
     if (engine.isPlaying) {
       engine.pause();
+      refresh();
     } else {
-      await engine.play();
-      if (user && !hasRecordedPracticeRef.current) {
-        hasRecordedPracticeRef.current = true;
-        recordPractice(user.id, workId, movementId);
-      }
+      await startPlayback();
     }
-    refresh();
   };
 
   const handleTempoChange = (value: number) => {
@@ -127,9 +132,13 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
     refresh();
   };
 
-  const handleSetLoopRegion = (start: number, end: number) => {
+  const handleSetLoopRegion = async (start: number, end: number) => {
     engine.setLoopRegion(start, end);
     setLoopRegionState({ start, end });
+    // 「ループ開始」は反復練習を始める操作なので、停止中なら再生もすぐ始める
+    if (!engine.isPlaying) {
+      await startPlayback();
+    }
   };
 
   const handleClearLoop = () => {
