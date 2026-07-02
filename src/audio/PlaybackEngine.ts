@@ -134,12 +134,30 @@ export class PlaybackEngine {
     this.seekToMeasure(this.getCurrentMeasure() + delta);
   }
 
+  /**
+   * startMeasure〜endMeasure(両端を含む)をループ区間に設定する。
+   * loopEndはendMeasureの「次の小節の頭」にする必要がある(measureStartBeatは
+   * 各小節の開始位置=排他的境界を返すため、そのままではendMeasure自体が
+   * 一度も再生されないままループしてしまう)。
+   */
   setLoopRegion(startMeasure: number, endMeasure: number): void {
-    const startBeat = measureStartBeat(startMeasure, this.movement);
-    const endBeat = measureStartBeat(endMeasure, this.movement);
-    Tone.Transport.loopStart = `${this.musicBeatToTicks(startBeat)}i`;
-    Tone.Transport.loopEnd = `${this.musicBeatToTicks(endBeat)}i`;
+    const clampedStart = Math.max(this.minMeasure, Math.min(startMeasure, this.measureCount));
+    const clampedEnd = Math.max(this.minMeasure, Math.min(endMeasure, this.measureCount));
+    const startBeat = measureStartBeat(clampedStart, this.movement);
+    const endBeat = measureStartBeat(clampedEnd + 1, this.movement);
+    const startTicks = this.musicBeatToTicks(startBeat);
+    const endTicks = this.musicBeatToTicks(endBeat);
+    Tone.Transport.loopStart = `${startTicks}i`;
+    Tone.Transport.loopEnd = `${endTicks}i`;
     Tone.Transport.loop = true;
+
+    // 現在位置がループ区間の外にある場合のみ区間の頭へ移動する。既に区間内で
+    // 練習中なら、区間の微調整のたびに頭へ戻されて練習が中断しないようにする。
+    const currentTicks = Tone.Transport.ticks;
+    if (currentTicks < startTicks || currentTicks >= endTicks) {
+      Tone.Transport.ticks = startTicks;
+      this.applyTempoAutomation();
+    }
   }
 
   clearLoop(): void {
@@ -184,7 +202,7 @@ export class PlaybackEngine {
     Tone.Transport.bpm.cancelScheduledValues(Tone.now());
     const currentBpm = tempoAtBeat(currentMusicBeat, this.movement.tempoEvents);
     Tone.Transport.bpm.setValueAtTime(
-      effectiveQuarterBpm(currentBpm, this.movement, this.tempoMultiplier),
+      effectiveQuarterBpm(currentBpm, this.tempoMultiplier),
       Tone.now(),
     );
 
@@ -192,10 +210,7 @@ export class PlaybackEngine {
       if (event.atBeat <= currentMusicBeat + 1e-6) continue;
       const ticks = this.musicBeatToTicks(event.atBeat);
       const id = Tone.Transport.schedule((time) => {
-        Tone.Transport.bpm.setValueAtTime(
-          effectiveQuarterBpm(event.bpm, this.movement, this.tempoMultiplier),
-          time,
-        );
+        Tone.Transport.bpm.setValueAtTime(effectiveQuarterBpm(event.bpm, this.tempoMultiplier), time);
       }, `${ticks}i`);
       this.tempoScheduleIds.push(id);
     }

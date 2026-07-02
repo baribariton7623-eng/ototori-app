@@ -37,6 +37,11 @@ function mergeTies(part: ParsedPart): NoteOrRest[] {
       i += 1;
       continue;
     }
+    if (event.tieStop) {
+      throw new Error(
+        `[${part.name}] 対応するtie-startの無い孤立したtie-stopです(pitch=${event.pitch}、${i + 1}番目のイベント付近)`,
+      );
+    }
     let beats = event.beats;
     let cursor = i;
     while (flat[cursor].tieStart) {

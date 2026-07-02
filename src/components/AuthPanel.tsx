@@ -25,11 +25,22 @@ export default function AuthPanel({ onClose }: AuthPanelProps) {
   };
 
   const handleGoogleLogin = async () => {
-    await supabase?.auth.signInWithOAuth({ provider: 'google' });
+    if (!supabase) return;
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+    if (error) {
+      setErrorMessage(error.message);
+      setStatus('error');
+    }
   };
 
   const handleSignOut = async () => {
-    await supabase?.auth.signOut();
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      setErrorMessage(error.message);
+      setStatus('error');
+      return;
+    }
     onClose();
   };
 
@@ -55,6 +66,7 @@ export default function AuthPanel({ onClose }: AuthPanelProps) {
             >
               ログアウト
             </button>
+            {status === 'error' && <p className="text-sm text-red-400">{errorMessage}</p>}
           </>
         ) : (
           <>

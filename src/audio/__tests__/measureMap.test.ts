@@ -167,17 +167,16 @@ describe('movementMeasureCount', () => {
 });
 
 describe('effectiveQuarterBpm', () => {
-  it('beatUnit=1(四分音符=1拍)ならそのまま', () => {
-    expect(effectiveQuarterBpm(120, { beatUnit: 1 })).toBe(120);
-  });
-
-  it('beatUnit=1.5(付点四分=1拍)なら四分音符基準に換算', () => {
-    // 付点四分=90拍/分 で指定された曲は、四分音符基準では 90*1.5=135
-    expect(effectiveQuarterBpm(90, { beatUnit: 1.5 })).toBe(135);
+  it('tempoMultiplier省略時はsegmentBpmをそのまま返す(TempoEvent.bpmは既に四分音符換算済みのため)', () => {
+    expect(effectiveQuarterBpm(120)).toBe(120);
   });
 
   it('tempoMultiplierを適用できる(50%スロー)', () => {
-    expect(effectiveQuarterBpm(120, { beatUnit: 1 }, 0.5)).toBe(60);
+    expect(effectiveQuarterBpm(120, 0.5)).toBe(60);
+  });
+
+  it('tempoMultiplierを適用できる(150%アップ)', () => {
+    expect(effectiveQuarterBpm(100, 1.5)).toBe(150);
   });
 });
 

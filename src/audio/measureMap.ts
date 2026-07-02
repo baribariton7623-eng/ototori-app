@@ -57,18 +57,18 @@ export function movementMeasureCount(movement: Movement): number {
 }
 
 /**
- * 基準BPM(何を1拍とするかは movement.beatUnit で定義)を、
- * Tone.Transport.bpm が期待する「四分音符=1拍」基準のBPMへ変換する。
- * beatUnit は「1拍が四分音符何個分か」を表すので、変換は乗算になる
- * (例: 付点四分=1拍(beatUnit=1.5)でBPM=90なら、四分音符基準では90*1.5=135)。
- * tempoMultiplier はユーザーのテンポスライダー(0.5〜1.5等)。
+ * TempoEvent.bpm(既に「四分音符=1拍」換算で統一済み。MusicXMLの<sound tempo>自体が
+ * 常にQPM=四分音符/分で表現されるため、変換時点で正規化済み)を、
+ * Tone.Transport.bpm へそのまま渡せる値に、テンポ倍率だけ適用して返す。
+ *
+ * movement.beatUnit は「原典の記譜上、何を1拍としてBPMが表記されていたか」を
+ * 示す情報用フィールド(例: 6/8で付点四分=126と印刷されていた場合の記録)であり、
+ * bpm値自体は既にbeatUnitとは独立して四分音符換算されているため、ここで
+ * 乗算してはいけない(以前は誤って乗算しており、beatUnitが1以外の楽章で
+ * 再生速度が実際のテンポ表記からズレるバグがあった)。
  */
-export function effectiveQuarterBpm(
-  segmentBpm: number,
-  movement: Pick<Movement, 'beatUnit'>,
-  tempoMultiplier = 1,
-): number {
-  return segmentBpm * movement.beatUnit * tempoMultiplier;
+export function effectiveQuarterBpm(segmentBpm: number, tempoMultiplier = 1): number {
+  return segmentBpm * tempoMultiplier;
 }
 
 /**

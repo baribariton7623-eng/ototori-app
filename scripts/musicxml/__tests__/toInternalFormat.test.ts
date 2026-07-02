@@ -61,6 +61,24 @@ describe('toInternalMovement — タイの対応が取れない場合はエラ�
     const parsed = parseMusicXmlString(xml);
     expect(() => toInternalMovement(parsed, { movementId: 'broken' })).toThrow(/タイの対応/);
   });
+
+  it('対応するtie-startの無い孤立したtie-stopの場合は例外を投げる', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Orphan</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>4</divisions><time><beats>4</beats><beat-type>4</beat-type></time></attributes>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration><tie type="stop"/></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>4</duration></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>4</duration></note>
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>4</duration></note>
+    </measure>
+  </part>
+</score-partwise>`;
+    const parsed = parseMusicXmlString(xml);
+    expect(() => toInternalMovement(parsed, { movementId: 'orphan' })).toThrow(/孤立したtie-stop/);
+  });
 });
 
 describe('toInternalMovement — 弱起なしの通常小節', () => {

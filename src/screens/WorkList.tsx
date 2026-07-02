@@ -40,8 +40,16 @@ export default function WorkList({ composer, onSelectWork, onRequireLogin }: Wor
       else next.add(workId);
       return next;
     });
-    if (isFav) await removeFavorite(user.id, workId);
-    else await addFavorite(user.id, workId);
+    const succeeded = isFav ? await removeFavorite(user.id, workId) : await addFavorite(user.id, workId);
+    if (!succeeded) {
+      // 保存に失敗した場合はオプティミスティック更新をロールバックし、見た目とDBの実態を一致させる
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(workId);
+        else next.delete(workId);
+        return next;
+      });
+    }
   };
 
   if (error) return <p className="p-4 text-red-400">{error}</p>;

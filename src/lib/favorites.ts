@@ -10,18 +10,28 @@ export async function listFavoriteWorkIds(userId: string): Promise<string[]> {
   return data.map((row) => row.work_id as string);
 }
 
-export async function addFavorite(userId: string, workId: string): Promise<void> {
-  if (!supabase) return;
+/** 成功したかどうかを返す。呼び出し側はfalse時にオプティミスティック更新をロールバックすること */
+export async function addFavorite(userId: string, workId: string): Promise<boolean> {
+  if (!supabase) return false;
   const { error } = await supabase.from('favorites').insert({ user_id: userId, work_id: workId });
-  if (error) console.error('[favorites] 追加に失敗しました', error);
+  if (error) {
+    console.error('[favorites] 追加に失敗しました', error);
+    return false;
+  }
+  return true;
 }
 
-export async function removeFavorite(userId: string, workId: string): Promise<void> {
-  if (!supabase) return;
+/** 成功したかどうかを返す。呼び出し側はfalse時にオプティミスティック更新をロールバックすること */
+export async function removeFavorite(userId: string, workId: string): Promise<boolean> {
+  if (!supabase) return false;
   const { error } = await supabase
     .from('favorites')
     .delete()
     .eq('user_id', userId)
     .eq('work_id', workId);
-  if (error) console.error('[favorites] 削除に失敗しました', error);
+  if (error) {
+    console.error('[favorites] 削除に失敗しました', error);
+    return false;
+  }
+  return true;
 }

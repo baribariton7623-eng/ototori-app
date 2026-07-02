@@ -30,6 +30,10 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
   const { user } = useAuth();
   const hasRecordedPracticeRef = useRef(false);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // 保存済み設定の読み込み(またはログインなしのためスキップ判定)が完了するまでは
+  // 保存処理を止めておく。これが無いと、読み込みが完了する前にデフォルト値で
+  // 上書き保存されてしまい、以前保存した設定がDB上で消えてしまう競合が起きる。
+  const muteSettingsLoadedRef = useRef(false);
 
   useEffect(() => {
     setData(null);
@@ -37,6 +41,7 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
     setTempoMultiplier(1);
     setLoopRegionState(null);
     hasRecordedPracticeRef.current = false;
+    muteSettingsLoadedRef.current = false;
     loadMovement(workId, movementId)
       .then((movementData) => {
         setData(movementData);
@@ -51,23 +56,31 @@ export default function PlayerScreen({ workId, movementId }: PlayerScreenProps) 
 
   // ログイン済みなら、保存済みのミュート/音量設定を読み込んで初期値に反映する
   useEffect(() => {
-    if (!data || !user) return;
-    loadMuteSettings(user.id, workId, movementId).then((saved) => {
-      if (!saved) return;
-      setPartSettings((prev) => {
-        const merged = { ...prev };
-        for (const [partId, setting] of Object.entries(saved)) {
-          if (merged[partId]) merged[partId] = setting;
-        }
-        return merged;
+    if (!data) return;
+    if (!user) {
+      muteSettingsLoadedRef.current = true;
+      return;
+    }
+    muteSettingsLoadedRef.current = false;
+    loadMuteSettings(user.id, workId, movementId)
+      .then((saved) => {
+        if (!saved) return;
+        setPartSettings((prev) => {
+          const merged = { ...prev };
+          for (const [partId, setting] of Object.entries(saved)) {
+            if (merged[partId]) merged[partId] = setting;
+          }
+          return merged;
+        });
+      })
+      .finally(() => {
+        muteSettingsLoadedRef.current = true;
       });
-    });
-    // data/user が揃うたびに一度だけ実行すればよい(workId/movementIdの変化はdataの変化に含まれる)
-  }, [data, user]);
+  }, [data, user, workId, movementId]);
 
-  // ミュート/音量設定が変わるたびデバウンスして保存する(ログイン時のみ)
+  // ミュート/音量設定が変わるたびデバウンスして保存する(ログイン時、かつ読み込み完了後のみ)
   useEffect(() => {
-    if (!user || !data || Object.keys(partSettings).length === 0) return;
+    if (!user || !data || !muteSettingsLoadedRef.current || Object.keys(partSettings).length === 0) return;
     clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
       saveMuteSettings(user.id, workId, movementId, partSettings);
