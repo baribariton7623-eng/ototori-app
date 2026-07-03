@@ -1,9 +1,12 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import Header from './components/Header';
+import HelpGuide from './components/HelpGuide';
 import { useAuth } from './hooks/useAuth';
 import ComposerList from './screens/ComposerList';
 import MovementList from './screens/MovementList';
 import WorkList from './screens/WorkList';
+
+const HELP_SEEN_KEY = 'ototori-help-seen';
 
 // Tone.js(再生画面)とSupabase-jsを使う認証パネルは重量級の依存を持つため、
 // 実際に必要になるまでバンドルを取得しない(初回読み込み速度の改善)。
@@ -26,8 +29,17 @@ const SCREEN_TITLES: Record<Screen['name'], string> = {
 export default function App() {
   const [stack, setStack] = useState<Screen[]>([{ name: 'composers' }]);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const { user, isAuthEnabled } = useAuth();
   const current = stack[stack.length - 1];
+
+  // 初回アクセス時だけ自動で使い方ガイドを表示する(以降はヘッダーの「?」から手動で開ける)
+  useEffect(() => {
+    if (!localStorage.getItem(HELP_SEEN_KEY)) {
+      setHelpOpen(true);
+      localStorage.setItem(HELP_SEEN_KEY, '1');
+    }
+  }, []);
 
   // ブラウザの「戻る」操作(戻るボタン・スワイプジェスチャー)を画面スタックのpopと同期させる。
   // 画面遷移のたびにhistoryへ1件積み、popstate(=ブラウザの戻る操作)が来たら
@@ -54,14 +66,23 @@ export default function App() {
         title={SCREEN_TITLES[current.name]}
         onBack={stack.length > 1 ? pop : undefined}
         right={
-          isAuthEnabled ? (
+          <div className="flex items-center gap-2">
             <button
-              onClick={openAuthPanel}
-              className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-accent px-4 text-sm font-medium text-paper shadow-sm transition hover:bg-accent-dark active:scale-95"
+              onClick={() => setHelpOpen(true)}
+              aria-label="使い方"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-hairline text-lg font-semibold text-ink-soft transition hover:bg-paper-soft active:scale-95"
             >
-              {user ? (user.email?.[0]?.toUpperCase() ?? 'U') : 'ログイン'}
+              ?
             </button>
-          ) : undefined
+            {isAuthEnabled && (
+              <button
+                onClick={openAuthPanel}
+                className="flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-accent px-4 text-sm font-medium text-paper shadow-sm transition hover:bg-accent-dark active:scale-95"
+              >
+                {user ? (user.email?.[0]?.toUpperCase() ?? 'U') : 'ログイン'}
+              </button>
+            )}
+          </div>
         }
       />
       <main className="flex-1">
@@ -96,6 +117,7 @@ export default function App() {
           <AuthPanel onClose={() => setAuthPanelOpen(false)} />
         </Suspense>
       )}
+      {helpOpen && <HelpGuide onClose={() => setHelpOpen(false)} />}
     </div>
   );
 }
