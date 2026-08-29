@@ -18,6 +18,6 @@ React 19 + Vite 8 + TypeScript 6 + Tailwind 4 + Tone.js 15 + Supabase。Cantata-
 - `content/musicxml/dona-nobis-pacem/round.musicxml`は自作の3声輪唱（パイプライン検証・デモ用のオリジナル曲であり、実際の伝承旋律の正確な採譜ではない）
 - iOS Safari実機でのWake Lock/音声再生の最終確認は未実施(ヘッドレスブラウザでは自動再生制限が無効化されており検証不能)
 
-## 現状メモ（2026-07時点）
+## 現状メモ（2026-08時点）
 
-MVP一式(コア再生・Supabase認証・Netlifyデプロイ設定)は実装済み、全31 vitestテストパス、本番ビルド確認済み。次の実作業は本物の合唱曲(メサイア等)のMusicXML入力・変換。その前にユーザー側でSupabaseプロジェクト作成・Google OAuth設定・Netlifyデプロイ(手順はREADME.md記載)が必要。
+MVP一式(コア再生・Supabase認証・Netlifyデプロイ設定)は実装済み、全46 vitestテストパス(5ファイル)、本番ビルド確認済み。依存パッケージのhigh severity脆弱性(fast-xml-parser/nanoid/postcss)は`npm audit fix`で解消済み。Supabaseプロジェクト作成・Google OAuth設定・Netlifyデプロイの具体手順はREADME.mdに記載済み。次の実作業は本物の合唱曲(メサイア等)のMusicXML入力・変換だが、著作権的にクリアな入力元(CPDL等)の選定がまだ済んでいない。
