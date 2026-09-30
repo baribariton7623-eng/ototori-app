@@ -17,6 +17,7 @@ import { AvailabilityService } from './services/AvailabilityService.js';
 import { BillingService } from './services/BillingService.js';
 import { BookingService } from './services/BookingService.js';
 import { FeeService } from './services/FeeService.js';
+import { OrganizationService } from './services/OrganizationService.js';
 import { ReminderService } from './services/ReminderService.js';
 
 const cfg = loadConfig();
@@ -44,8 +45,14 @@ const bookings = new BookingService(repos, calendar, availability, systemClock, 
 const billingProvider =
   cfg.BILLING === 'stripe'
     ? new StripeBillingProvider(
-        { secretKey: cfg.STRIPE_SECRET_KEY, webhookSecret: cfg.STRIPE_WEBHOOK_SECRET, proPriceId: cfg.STRIPE_PRICE_ID_PRO },
+        {
+          secretKey: cfg.STRIPE_SECRET_KEY,
+          webhookSecret: cfg.STRIPE_WEBHOOK_SECRET,
+          proPriceId: cfg.STRIPE_PRICE_ID_PRO,
+          orgSeatPriceId: cfg.STRIPE_PRICE_ID_ORG_SEAT,
+        },
         repos.hosts,
+        repos.organizations,
       )
     : new FakeBillingProvider(cfg.APP_BASE_URL);
 const billing = new BillingService(repos, billingProvider);
@@ -71,7 +78,8 @@ const cleanup: AccountCleanup = {
     if (error) console.error('[account] Supabase Auth ユーザーの削除に失敗しました', error.message);
   },
 };
-const accounts = new AccountService(repos, bookings, billing, cleanup, systemClock);
+const organizations = new OrganizationService(repos, billing, notifier, systemClock);
+const accounts = new AccountService(repos, bookings, billing, cleanup, systemClock, organizations);
 const reminders = new ReminderService(repos, notifier, systemClock, cfg.REMINDER_HOURS_BEFORE);
 
 if (cfg.REMINDER_INTERVAL_MINUTES > 0) {
@@ -93,6 +101,7 @@ const app = createApp({
   accounts,
   reminders,
   fees,
+  organizations,
   cronSecret: cfg.CRON_SECRET,
   fakeBilling: cfg.BILLING === 'fake',
   clock: systemClock,

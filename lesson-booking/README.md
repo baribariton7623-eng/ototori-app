@@ -120,6 +120,8 @@ curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<api-host>/internal/cron/r
 
 ローカル(`BILLING=fake`)では「Stripe と連携する」「カードで支払う」が即時に完了する。
 
+教室プラン(席数課金): Stripe で「講師 1 人あたり月額」の Price を作り `STRIPE_PRICE_ID_ORG_SEAT` に設定する。Webhook は個人プランと同じ `/billing/webhook` で、顧客 ID から教室の契約かを判別する。講師画面の「教室」タブから作成・招待・契約する。
+
 ### 5. 運営者情報と法務ページ
 `web/.env` の `VITE_OPERATOR_NAME` などを設定してから `cd web && npm run build`。
 利用規約 `/terms`、プライバシーポリシー `/privacy`、特定商取引法に基づく表記 `/tokushoho` に反映される。未設定の項目は赤字で「未設定」と表示される。文面はひな形のため、公開前に専門家の確認を推奨。
@@ -151,5 +153,5 @@ test/                 vitest
 
 ## 未実装・今後
 
-- 組織(教室)プラン(docs/business.md §7)
 - 実 Supabase / 実 Google / 実 Stripe / 実 Resend での結合確認
+- 一括休講(期間指定で複数の予約をまとめて取り消す)

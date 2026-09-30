@@ -1,6 +1,6 @@
 import type { BillingEvent, BillingProvider } from '../billing/BillingProvider.js';
 import { DomainError } from '../domain/errors.js';
-import type { Host } from '../domain/types.js';
+import type { Host, Organization, SubscriptionStatus } from '../domain/types.js';
 import type { Repositories } from '../repo/Repository.js';
 
 /** 課金イベントを主催者のプラン状態に反映する */
@@ -34,6 +34,16 @@ export class BillingService {
   }
 
   async apply(event: BillingEvent): Promise<void> {
+    // 教室プランの契約か(metadata.orgId、または顧客 ID が教室のもの)
+    if (event.type !== 'ignored') {
+      const org =
+        (event.type === 'subscription_activated' && event.orgId ? await this.repos.organizations.findById(event.orgId) : null) ??
+        (event.customerId ? await this.repos.organizations.findByStripeCustomerId(event.customerId) : null);
+      if (org) {
+        await this.applyToOrganization(org, event);
+        return;
+      }
+    }
     switch (event.type) {
       case 'subscription_activated': {
         const host = (event.hostId ? await this.repos.hosts.findById(event.hostId) : null) ??
@@ -66,6 +76,73 @@ export class BillingService {
       case 'ignored':
         return;
     }
+  }
+
+  private async applyToOrganization(org: Organization, event: Exclude<BillingEvent, { type: 'ignored' }>): Promise<void> {
+    let status: SubscriptionStatus;
+    const patch: Partial<Organization> = {};
+    if (event.type === 'subscription_activated') {
+      status = 'active';
+      patch.stripeCustomerId = event.customerId || org.stripeCustomerId;
+      patch.stripeSubscriptionId = event.subscriptionId || org.stripeSubscriptionId;
+    } else if (event.type === 'subscription_updated') {
+      status = event.status;
+      patch.stripeSubscriptionId = event.subscriptionId;
+    } else {
+      status = 'canceled';
+      patch.stripeSubscriptionId = null;
+    }
+    const updated = await this.repos.organizations.update(org.id, { ...patch, subscriptionStatus: status });
+    await this.syncMembers(updated);
+  }
+
+  /** 教室の契約状態を所属講師の orgPlanActive に反映 */
+  async syncMembers(org: Organization): Promise<void> {
+    const active = org.subscriptionStatus === 'active';
+    for (const h of await this.repos.hosts.listByOrganization(org.id)) {
+      if (h.orgPlanActive !== active) await this.repos.hosts.update(h.id, { orgPlanActive: active });
+    }
+  }
+
+  // ---- 教室プラン ----
+
+  orgCheckoutUrl(org: Organization, owner: Host, seats: number, urls: { success: string; cancel: string }): Promise<string> {
+    return this.provider.createOrgCheckoutUrl(org, owner, seats, urls);
+  }
+
+  orgPortalUrl(org: Organization, returnUrl: string): Promise<string> {
+    if (org.subscriptionStatus === 'none') throw new DomainError('invalid_state', 'まだ契約がありません');
+    return this.provider.createOrgPortalUrl(org, returnUrl);
+  }
+
+  async updateOrgSeats(org: Organization, seats: number): Promise<void> {
+    if (org.subscriptionStatus !== 'active' && org.subscriptionStatus !== 'past_due') return;
+    await this.provider.updateOrgSeats(org, seats);
+  }
+
+  async cancelOrgImmediately(org: Organization): Promise<void> {
+    if (org.subscriptionStatus === 'none' || org.subscriptionStatus === 'canceled') return;
+    await this.provider.cancelOrgImmediately(org);
+  }
+
+  /** FakeBillingProvider 用: 教室プランを即時有効化 */
+  async activateOrgForDev(orgId: string): Promise<void> {
+    const org = await this.repos.organizations.findById(orgId);
+    if (!org) throw new DomainError('not_found', '教室が見つかりません');
+    await this.apply({
+      type: 'subscription_activated',
+      customerId: org.stripeCustomerId ?? `fake_org_cus_${orgId.slice(0, 8)}`,
+      subscriptionId: `fake_org_sub_${orgId.slice(0, 8)}`,
+      hostId: null,
+      orgId,
+    });
+  }
+
+  /** FakeBillingProvider 用: 教室プランを即時解約 */
+  async cancelOrgForDev(orgId: string): Promise<void> {
+    const org = await this.repos.organizations.findById(orgId);
+    if (!org?.stripeCustomerId) return;
+    await this.apply({ type: 'subscription_canceled', customerId: org.stripeCustomerId, subscriptionId: org.stripeSubscriptionId ?? '' });
   }
 
   /** FakeBillingProvider 用: 即時有効化 */

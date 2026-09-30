@@ -1,6 +1,7 @@
 import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
 import { FakeFeePaymentProvider } from '../src/billing/FakeFeePaymentProvider.js';
 import { FeeService } from '../src/services/FeeService.js';
+import { OrganizationService } from '../src/services/OrganizationService.js';
 import { FakeCalendarClient } from '../src/calendar/FakeCalendarClient.js';
 import { MemoryEmailSender } from '../src/notify/EmailSender.js';
 import { EmailNotifier } from '../src/notify/EmailNotifier.js';
@@ -39,6 +40,7 @@ export interface TestWorld {
   accounts: AccountService;
   reminders: ReminderService;
   fees: FeeService;
+  organizations: OrganizationService;
   host: Host;
   student: Student;
 }
@@ -67,7 +69,8 @@ export async function setupWorld(): Promise<TestWorld> {
       deletedAuthUsers.push(subject);
     },
   };
-  const accounts = new AccountService(repos, bookings, billing, cleanup, clock);
+  const organizations = new OrganizationService(repos, billing, notifier, clock);
+  const accounts = new AccountService(repos, bookings, billing, cleanup, clock, organizations);
   const reminders = new ReminderService(repos, notifier, clock, 24);
   const fees = new FeeService(repos, new FakeFeePaymentProvider('https://app.example.com'), notifier);
 
@@ -83,6 +86,8 @@ export async function setupWorld(): Promise<TestWorld> {
     cancellationFeeAmount: 3000,
     stripeConnectAccountId: null,
     connectChargesEnabled: false,
+    organizationId: null,
+    orgPlanActive: false,
     timezone: 'Asia/Tokyo',
     lessonMinutes: 60,
     minLeadMinutes: 60,
@@ -94,7 +99,7 @@ export async function setupWorld(): Promise<TestWorld> {
   await repos.hostCalendars.add({ hostId: host.id, calendarId: 'private@group.calendar.google.com', label: '私用', role: 'busy_source' });
 
   const student = await repos.students.create({ email: 'student@example.com', name: '生徒B' });
-  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, reminders, fees, host, student };
+  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, reminders, fees, organizations, host, student };
 }
 
 /** JST のローカル日時を UTC Date に */

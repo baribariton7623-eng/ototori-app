@@ -26,6 +26,7 @@ export interface BillingInfo {
   effectivePlan: Plan;
   planLabel: string;
   subscriptionStatus: SubscriptionStatus;
+  viaOrganization: boolean;
   limits: PlanLimits;
   usage: { bookingsThisMonth: number; calendars: number };
   publicUrl: string;
@@ -49,6 +50,8 @@ export interface Host {
   cancellationFeeAmount: number | null;
   stripeConnectAccountId: string | null;
   connectChargesEnabled: boolean;
+  organizationId: string | null;
+  orgPlanActive: boolean;
   timezone: string;
   lessonMinutes: number;
   minLeadMinutes: number;
@@ -152,4 +155,41 @@ export type ChangeOutcome =
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown };
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  bio: string;
+  ownerHostId: string;
+  subscriptionStatus: SubscriptionStatus;
+  createdAt: string;
+}
+
+export interface OrgInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  status: 'pending' | 'accepted' | 'declined' | 'revoked';
+  createdAt: string;
+}
+
+export type OrgMember = PublicHost & { email?: string; isOwner: boolean };
+
+export interface MyOrganization {
+  organization: Organization;
+  isOwner: boolean;
+  publicUrl: string;
+  members: OrgMember[];
+  invitations: OrgInvitation[];
+}
+
+export type MyInvitation = OrgInvitation & { organizationName: string; organizationSlug: string };
+
+export interface PublicOrganization {
+  slug: string;
+  name: string;
+  bio: string;
+  teachers: PublicHost[];
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { Host } from '../api/types';
 import { ErrorBanner, Notice } from '../components/ui';
@@ -10,6 +10,11 @@ export function BecomeHostScreen({ onRegistered }: { onRegistered: (h: Host) => 
   const [bio, setBio] = useState('');
   const [lessonMinutes, setLessonMinutes] = useState(60);
   const [agreed, setAgreed] = useState(false);
+  const [invitedTo, setInvitedTo] = useState<string[]>([]);
+
+  useEffect(() => {
+    api.myInvitations().then((l) => setInvitedTo(l.map((i) => i.organizationName))).catch(() => setInvitedTo([]));
+  }, []);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -30,6 +35,9 @@ export function BecomeHostScreen({ onRegistered }: { onRegistered: (h: Host) => 
       }}
     >
       <h2 className="font-semibold">主催者(講師)として登録</h2>
+      {invitedTo.length > 0 && (
+        <Notice tone="success">教室「{invitedTo.join('」「')}」から招待されています。講師登録後、「教室」タブで参加できます。</Notice>
+      )}
       <Notice tone="warn">このアカウントを講師用にします。登録後は生徒として予約する操作はできません。登録すると専用の予約ページ URL が発行されます(フリープラン)。</Notice>
       <div>
         <label className="label" htmlFor="bh-name">表示名(生徒に見える名前)</label>

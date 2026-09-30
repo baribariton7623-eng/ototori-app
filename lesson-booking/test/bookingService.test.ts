@@ -233,6 +233,8 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
       cancellationFeeAmount: null,
       stripeConnectAccountId: null,
       connectChargesEnabled: false,
+      organizationId: null,
+      orgPlanActive: false,
       timezone: 'Asia/Tokyo',
       lessonMinutes: 60,
       minLeadMinutes: 0,

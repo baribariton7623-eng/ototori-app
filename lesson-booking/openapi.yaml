@@ -13,6 +13,7 @@ security:
   - devHeader: []
 tags:
   - { name: public, description: ログイン不要 }
+  - { name: organization, description: 教室(組織)プラン }
   - { name: student, description: 生徒 }
   - { name: host, description: 主催者 }
   - { name: google, description: Google カレンダー連携 }
@@ -472,6 +473,7 @@ paths:
                   effectivePlan: { type: string, enum: [free, pro] }
                   planLabel: { type: string }
                   subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
+                  viaOrganization: { type: boolean, description: 教室プランによってプロ相当になっているか }
                   limits:
                     type: object
                     properties:
@@ -537,6 +539,156 @@ paths:
                   sent: { type: integer }
                   failed: { type: integer }
         '403': { $ref: '#/components/responses/Error' }
+  /orgs/by-slug/{slug}:
+    get:
+      tags: [public, organization]
+      security: []
+      summary: 教室の公開ページ情報(所属講師の公開情報つき)
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug: { type: string }
+                  name: { type: string }
+                  bio: { type: string }
+                  teachers: { type: array, items: { $ref: '#/components/schemas/PublicHost' } }
+        '404': { $ref: '#/components/responses/Error' }
+  /orgs:
+    post:
+      tags: [organization]
+      summary: 教室を作成(作成した講師が管理者)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string }
+                slug: { type: string, pattern: '^[a-z0-9-]{3,32}$' }
+                bio: { type: string }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /orgs/{orgId}:
+    parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+    patch:
+      tags: [organization]
+      summary: 教室情報の変更(管理者のみ)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                slug: { type: string }
+                bio: { type: string }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }
+    delete:
+      tags: [organization]
+      summary: 教室の削除(契約は即時解約、所属講師は未所属に戻る)
+      responses:
+        '204': { description: No Content }
+  /orgs/{orgId}/invitations:
+    parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [organization]
+      summary: 講師を招待(管理者のみ。招待メールを送る)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [email], properties: { email: { type: string, format: email } } }
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/Error' }
+  /orgs/{orgId}/invitations/{id}:
+    parameters:
+      - { name: orgId, in: path, required: true, schema: { type: string } }
+      - { $ref: '#/components/parameters/id' }
+    delete:
+      tags: [organization]
+      summary: 招待の取り消し
+      responses:
+        '204': { description: No Content }
+  /orgs/{orgId}/members/{hostId}:
+    parameters:
+      - { name: orgId, in: path, required: true, schema: { type: string } }
+      - { $ref: '#/components/parameters/hostId' }
+    delete:
+      tags: [organization]
+      summary: 所属講師を外す(管理者のみ)
+      responses:
+        '204': { description: No Content }
+  /orgs/{orgId}/billing/checkout:
+    parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [organization]
+      summary: 教室プランの決済ページ URL(数量 = 所属講師数)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [successUrl, cancelUrl], properties: { successUrl: { type: string }, cancelUrl: { type: string } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+  /orgs/{orgId}/billing/portal:
+    parameters: [{ name: orgId, in: path, required: true, schema: { type: string } }]
+    post:
+      tags: [organization]
+      summary: 教室プランの支払い・解約管理ページ URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [returnUrl], properties: { returnUrl: { type: string } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+  /me/organization:
+    get:
+      tags: [organization]
+      summary: 所属中の教室(未所属なら null)。管理者には所属講師のメールと招待中の一覧も返す
+      responses:
+        '200': { description: OK }
+  /me/organization/leave:
+    post:
+      tags: [organization]
+      summary: 教室から抜ける(管理者は不可)
+      responses:
+        '204': { description: No Content }
+        '409': { $ref: '#/components/responses/Error' }
+  /me/invitations:
+    get:
+      tags: [organization]
+      summary: 自分宛ての未回答の招待(講師登録前でも可)
+      responses:
+        '200': { description: OK }
+  /invitations/{id}/accept:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      tags: [organization]
+      summary: 招待を承諾(講師登録が必要)
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Organization' } } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /invitations/{id}/decline:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      tags: [organization]
+      summary: 招待を辞退
+      responses:
+        '204': { description: No Content }
   /billing/connect-webhook:
     post:
       tags: [public]
@@ -641,6 +793,16 @@ components:
       type: string
       enum: [request_approval, reschedule_within_two_weeks, pay_cancellation_fee]
       description: 承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う
+    Organization:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        slug: { type: string }
+        bio: { type: string }
+        ownerHostId: { type: string }
+        subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
+        createdAt: { type: string, format: date-time }
     PublicHost:
       type: object
       properties:
@@ -665,6 +827,8 @@ components:
         cancellationFeeAmount: { type: [integer, 'null'] }
         stripeConnectAccountId: { type: [string, 'null'] }
         connectChargesEnabled: { type: boolean }
+        organizationId: { type: [string, 'null'] }
+        orgPlanActive: { type: boolean, description: 所属教室の契約が有効か(有効ならプロ相当) }
         timezone: { type: string }
         lessonMinutes: { type: integer }
         minLeadMinutes: { type: integer }

@@ -27,6 +27,10 @@ export interface Host {
   stripeConnectAccountId: string | null;
   /** その Stripe アカウントで決済を受けられる状態か(本人確認・口座登録済み) */
   connectChargesEnabled: boolean;
+  /** 所属する教室(組織)。未所属なら null */
+  organizationId: string | null;
+  /** 所属教室の契約が有効か(教室の契約状態を所属講師に複製して持つ。OrganizationService が同期する) */
+  orgPlanActive: boolean;
   /** IANA タイムゾーン。既定 Asia/Tokyo */
   timezone: string;
   /** 1レッスンの長さ(分) */
@@ -137,4 +141,32 @@ export interface Slot {
 export interface BusyInterval {
   startAt: string;
   endAt: string;
+}
+
+/** 教室(組織)。複数の講師をまとめて契約・紹介する単位 */
+export interface Organization {
+  id: string;
+  name: string;
+  /** 公開ページ #/o/<slug> 用。講師の slug とは別の名前空間 */
+  slug: string;
+  bio: string;
+  /** 管理者(作成した講師)。管理者も所属講師の 1 人 */
+  ownerHostId: string;
+  subscriptionStatus: SubscriptionStatus;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  createdAt: string;
+}
+
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
+
+/** 教室への招待。招待されたメールアドレスでログインした講師が承諾する */
+export interface OrgInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  status: InvitationStatus;
+  invitedByHostId: string;
+  createdAt: string;
+  respondedAt: string | null;
 }

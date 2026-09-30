@@ -7,6 +7,7 @@ import {
   changeDecidedMails,
   changeRequestedMails,
   feePaidMails,
+  orgInvitedMails,
   lessonReminderMails,
   type TemplateContext,
 } from './templates.js';
@@ -37,6 +38,8 @@ export class EmailNotifier implements Notifier {
     this.sendAll(lessonReminderMails(this.ctx, e.host, e.student, e.booking));
 
   feePaid: Notifier['feePaid'] = async (e) => this.sendAll(feePaidMails(this.ctx, e.host, e.student, e.booking));
+
+  orgInvited: Notifier['orgInvited'] = async (e) => this.sendAll(orgInvitedMails(this.ctx, e.organization, e.inviter, e.email));
 
   private async sendAll(messages: EmailMessage[]): Promise<void> {
     const results = await Promise.allSettled(messages.map((m) => this.sender.send(m)));

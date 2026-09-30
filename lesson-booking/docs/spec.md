@@ -134,6 +134,16 @@
 - 決済完了は Connect 用 Webhook(`POST /billing/connect-webhook`、`checkout.session.completed` の `metadata.kind = cancellation_fee`)で `paid` にする。再送に対して冪等で、予約の主催者と異なる Stripe アカウントからのイベントは拒否する。`account.updated` で決済可否を更新する。
 - 支払い完了時に主催者と生徒へメール。手動の「入金確認」も引き続き使える。
 
+### 3.9 教室(組織)プラン
+- 講師は 1 つの教室にだけ所属できる。教室を作成した講師が管理者(owner)で、管理者も所属講師に含む。
+- 管理者はメールアドレスで講師を招待する(同じ教室・同じメールへの未回答の招待は 1 件)。招待メールが送られ、そのメールでログインした講師が「教室」タブで承諾すると所属する。講師登録前でも招待は見えるが、承諾には講師登録が必要。
+- 教室の契約は所属講師数を数量とする席数課金(`STRIPE_PRICE_ID_ORG_SEAT`)。参加・脱退・除名のたびに数量を日割りで更新する(失敗しても所属変更は成立し、次回の変更時に再同期)。
+- 教室が `active` の間、所属講師は `orgPlanActive = true` となりプロ相当(`effectivePlan`)。`past_due`・`canceled` や脱退でフリー(または個人契約)に戻る。教室の契約状態は Webhook(顧客 ID または `metadata.orgId` で教室と判別)で所属講師に同期する。
+- 管理者は所属講師のメールアドレスを見られるが、**他の講師の予約・生徒の情報は見られない**。所属講師同士は表示名・紹介文のみ。
+- 管理者は脱退できない(教室を削除する)。教室の削除は契約を即時解約し、所属講師を未所属に戻す。各講師の予約はそのまま。
+- 退会時: 管理者なら教室ごと削除、所属講師なら脱退。
+- 公開ページ `#/o/<slug>` に所属講師の一覧を表示し、各講師の予約ページへ案内する。教室の slug は講師の slug とは別の名前空間。
+
 ### 3.7 複数主催者とプラン(SaaS)
 - 主催者一覧は公開しない。各主催者が `slug` 付きの公開予約ページ URL を生徒に共有する。slug は `^[a-z0-9-]{3,32}$`、全体で一意。未指定なら 10 文字のランダム値。
 - 生徒はログインなしで公開ページの空き枠を閲覧でき、予約時にログインを求める。
@@ -146,7 +156,7 @@
 | 予約のカレンダー書き込み | なし | あり |
 | キャンセルフィーのオンライン決済 | なし | あり |
 
-- 実効プラン: `plan = pro` かつ `subscriptionStatus = active` のときだけ pro。`past_due` / `canceled` は free の上限に落ちる。
+- 実効プラン: `plan = pro` かつ `subscriptionStatus = active`、または所属教室の契約が有効(`orgPlanActive`)のとき pro。`past_due` / `canceled` は free の上限に落ちる。
 - 上限超過は `plan_limit`(HTTP 402)。
 - 課金は `BillingProvider` 抽象(Stripe 実装 / Fake 実装)。Checkout → Webhook で `plan` / `subscriptionStatus` / `stripeCustomerId` / `stripeSubscriptionId` を更新。販売面の整理は `docs/business.md`。
 
@@ -160,6 +170,12 @@ lb_hosts                    主催者(テナント)
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
   cancellation_fee_amount, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at
+lb_organizations            教室
+  id, name, slug(unique), bio, owner_host_id, subscription_status, stripe_customer_id(unique), stripe_subscription_id, created_at
+  (lb_hosts に organization_id, org_plan_active を追加)
+lb_org_invitations          教室への招待
+  id, organization_id, email, status(pending|accepted|declined|revoked), invited_by_host_id, created_at, responded_at
+  unique(organization_id, lower(email)) where status='pending'
 lb_host_google_credentials  Google OAuth refresh token(主催者と 1:1、service role のみ参照)
   host_id(pk), refresh_token, updated_at
 lb_host_calendars           連携カレンダー(role: busy_source | write_target。write_target は主催者ごとに 1 件)
@@ -200,6 +216,21 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/billing/webhook` | Stripe Webhook(生ボディ・署名検証) |
 | POST | `/internal/cron/reminders` | 前日リマインドの実行(`x-cron-secret` ヘッダ必須) |
 | POST | `/billing/connect-webhook` | Stripe Connect Webhook(キャンセルフィー決済・アカウント状態) |
+
+### 教室
+| Method | Path | 説明 |
+| --- | --- | --- |
+| GET | `/orgs/by-slug/{slug}` | 公開: 教室名・紹介文・所属講師の公開情報 |
+| POST | `/orgs` | 教室を作成(講師のみ、作成者が管理者) `{name, slug, bio?}` |
+| GET | `/me/organization` | 所属中の教室(管理者には所属講師のメールと招待中の一覧も) |
+| POST | `/me/organization/leave` | 脱退(管理者は不可) |
+| PATCH / DELETE | `/orgs/{orgId}` | 教室情報の変更 / 教室の削除(管理者のみ) |
+| POST | `/orgs/{orgId}/invitations` | 招待 `{email}`(管理者のみ) |
+| DELETE | `/orgs/{orgId}/invitations/{id}` | 招待の取り消し |
+| DELETE | `/orgs/{orgId}/members/{hostId}` | 所属講師を外す |
+| POST | `/orgs/{orgId}/billing/checkout` / `portal` | 教室プランの契約 / 管理 |
+| GET | `/me/invitations` | 自分宛ての未回答の招待(講師登録前でも可) |
+| POST | `/invitations/{id}/accept` / `decline` | 招待の承諾(講師のみ)/ 辞退 |
 
 ### 生徒
 | Method | Path | 説明 |
@@ -293,13 +324,13 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | Supabase JWT 認証 | 実装済み(実トークンでの確認は未実施) |
 | フロントエンド(生徒・主催者画面) | 実装済み(web/)。Playwright で講師設定→予約→直前申請→承認の一連を確認済み |
 | 複数主催者(公開ページ slug・プラン上限) | 実装済み |
-| テスト | vitest 75 件、Playwright で主要フローを確認 |
+| テスト | vitest 83 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |
 | 休講・退会(データ削除) | 実装済み |
 | 前日リマインド | 実装済み |
 | キャンセルフィーのオンライン決済(Stripe Connect) | 実装済み(実 Stripe での確認は未実施。Fake で動作確認) |
-| 組織(教室)プラン | 未実装 |
+| 教室(組織)プラン | 実装済み(席数課金。実 Stripe での確認は未実施) |
 | 通知(メール等) | 未実装(`Notifier` フックのみ) |
 | 決済 | スコープ外(入金確認フラグのみ) |

@@ -23,6 +23,8 @@ export const operator = {
   email: v('VITE_OPERATOR_EMAIL'),
   /** プロプランの表示価格(例: 月額1,480円(税込)) */
   proPrice: v('VITE_PRO_PRICE'),
+  /** 教室プランの表示価格(例: 講師1人あたり月額1,280円(税込)) */
+  orgSeatPrice: v('VITE_ORG_SEAT_PRICE'),
   /** 法務ページの施行日(例: 2026年11月1日) */
   effectiveDate: v('VITE_LEGAL_EFFECTIVE_DATE'),
 };
@@ -36,6 +38,7 @@ export const OPERATOR_ENV: Record<OperatorKey, string> = {
   phone: 'VITE_OPERATOR_PHONE',
   email: 'VITE_OPERATOR_EMAIL',
   proPrice: 'VITE_PRO_PRICE',
+  orgSeatPrice: 'VITE_ORG_SEAT_PRICE',
   effectiveDate: 'VITE_LEGAL_EFFECTIVE_DATE',
 };
 

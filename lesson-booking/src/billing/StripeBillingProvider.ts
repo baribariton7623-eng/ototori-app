@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { DomainError } from '../domain/errors.js';
-import type { Host } from '../domain/types.js';
-import type { HostRepository } from '../repo/Repository.js';
+import type { Host, Organization } from '../domain/types.js';
+import type { HostRepository, OrganizationRepository } from '../repo/Repository.js';
 import type { BillingEvent, BillingProvider } from './BillingProvider.js';
 
 export interface StripeConfig {
@@ -9,6 +9,8 @@ export interface StripeConfig {
   webhookSecret: string;
   /** プロプランの Price ID(price_...)。月額の recurring price を想定 */
   proPriceId: string;
+  /** 教室プランの Price ID。講師 1 人あたり月額(数量 = 所属講師数) */
+  orgSeatPriceId: string;
 }
 
 /**
@@ -21,6 +23,7 @@ export class StripeBillingProvider implements BillingProvider {
   constructor(
     private readonly cfg: StripeConfig,
     private readonly hosts: HostRepository,
+    private readonly orgs: OrganizationRepository,
   ) {
     this.stripe = new Stripe(cfg.secretKey);
   }
@@ -45,6 +48,57 @@ export class StripeBillingProvider implements BillingProvider {
     const customerId = await this.ensureCustomer(host);
     const session = await this.stripe.billingPortal.sessions.create({ customer: customerId, return_url: returnUrl });
     return session.url;
+  }
+
+  async createOrgCheckoutUrl(org: Organization, owner: Host, seats: number, urls: { success: string; cancel: string }): Promise<string> {
+    if (!this.cfg.orgSeatPriceId) throw new DomainError('validation', '教室プランの料金(STRIPE_PRICE_ID_ORG_SEAT)が未設定です');
+    const customerId = await this.ensureOrgCustomer(org, owner);
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      line_items: [{ price: this.cfg.orgSeatPriceId, quantity: Math.max(1, seats) }],
+      success_url: urls.success,
+      cancel_url: urls.cancel,
+      allow_promotion_codes: true,
+      metadata: { orgId: org.id },
+      subscription_data: { metadata: { orgId: org.id } },
+    });
+    if (!session.url) throw new DomainError('validation', 'Stripe Checkout の URL を取得できませんでした');
+    return session.url;
+  }
+
+  async createOrgPortalUrl(org: Organization, returnUrl: string): Promise<string> {
+    if (!org.stripeCustomerId) throw new DomainError('invalid_state', 'まだ契約がありません');
+    const session = await this.stripe.billingPortal.sessions.create({ customer: org.stripeCustomerId, return_url: returnUrl });
+    return session.url;
+  }
+
+  async updateOrgSeats(org: Organization, seats: number): Promise<void> {
+    if (!org.stripeSubscriptionId) return;
+    const sub = await this.stripe.subscriptions.retrieve(org.stripeSubscriptionId);
+    const item = sub.items.data[0];
+    if (!item || item.quantity === seats) return;
+    await this.stripe.subscriptions.update(org.stripeSubscriptionId, {
+      items: [{ id: item.id, quantity: Math.max(1, seats) }],
+      proration_behavior: 'create_prorations',
+    });
+  }
+
+  async cancelOrgImmediately(org: Organization): Promise<void> {
+    if (!org.stripeSubscriptionId) return;
+    try {
+      await this.stripe.subscriptions.cancel(org.stripeSubscriptionId);
+    } catch (e) {
+      if ((e as { code?: string }).code === 'resource_missing') return;
+      throw e;
+    }
+  }
+
+  private async ensureOrgCustomer(org: Organization, owner: Host): Promise<string> {
+    if (org.stripeCustomerId) return org.stripeCustomerId;
+    const customer = await this.stripe.customers.create({ email: owner.email, name: org.name, metadata: { orgId: org.id } });
+    await this.orgs.update(org.id, { stripeCustomerId: customer.id });
+    return customer.id;
   }
 
   async cancelImmediately(host: Host): Promise<void> {
@@ -75,6 +129,7 @@ export class StripeBillingProvider implements BillingProvider {
           customerId: idOf(s.customer),
           subscriptionId: idOf(s.subscription),
           hostId: s.metadata?.hostId ?? null,
+          orgId: s.metadata?.orgId ?? null,
         };
       }
       case 'customer.subscription.updated': {

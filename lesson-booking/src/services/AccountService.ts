@@ -4,6 +4,7 @@ import type { Repositories } from '../repo/Repository.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { BillingService } from './BillingService.js';
 import type { BookingService } from './BookingService.js';
+import type { OrganizationService } from './OrganizationService.js';
 
 /** 外部サービス側の後始末(差し替え可能にしてテストしやすくする) */
 export interface AccountCleanup {
@@ -40,6 +41,7 @@ export class AccountService {
     private readonly billing: BillingService,
     private readonly cleanup: AccountCleanup,
     private readonly clock: Clock,
+    private readonly organizations?: OrganizationService,
   ) {}
 
   async deleteAccount(input: { email: string; subject: string | null; host: Host | null }): Promise<DeletionResult> {
@@ -50,6 +52,9 @@ export class AccountService {
     if (input.host) {
       const cancelled = await this.bookings.cancelAllFutureByHost(input.host.id, HOST_DELETION_REASON);
       cancelledBookings = cancelled.length;
+      // 教室の管理者なら教室ごと削除(契約解約・所属講師の解除)、所属講師なら脱退
+      const fresh = (await this.repos.hosts.findById(input.host.id)) ?? input.host;
+      await this.organizations?.handleHostDeletion(fresh);
       await this.billing.cancelForAccountDeletion(input.host);
       await this.cleanup.revokeGoogle(input.host.id);
       await this.repos.hosts.delete(input.host.id);

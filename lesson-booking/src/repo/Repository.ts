@@ -4,6 +4,8 @@ import type {
   ChangeRequest,
   Host,
   HostCalendar,
+  Organization,
+  OrgInvitation,
   Student,
 } from '../domain/types.js';
 
@@ -15,6 +17,7 @@ export interface HostRepository {
   findBySlug(slug: string): Promise<Host | null>;
   findByStripeCustomerId(customerId: string): Promise<Host | null>;
   findByConnectAccountId(accountId: string): Promise<Host | null>;
+  listByOrganization(organizationId: string): Promise<Host[]>;
   list(): Promise<Host[]>;
   /** 主催者と、その主催者に紐づく全データ(カレンダー設定・営業時間枠・予約・変更要求・Google 認可)を削除 */
   delete(id: string): Promise<void>;
@@ -63,6 +66,24 @@ export interface ChangeRequestRepository {
   listByBooking(bookingId: string): Promise<ChangeRequest[]>;
 }
 
+export interface OrganizationRepository {
+  create(input: Omit<Organization, 'id' | 'createdAt'>): Promise<Organization>;
+  update(id: string, patch: Partial<Omit<Organization, 'id' | 'createdAt'>>): Promise<Organization>;
+  findById(id: string): Promise<Organization | null>;
+  findBySlug(slug: string): Promise<Organization | null>;
+  findByStripeCustomerId(customerId: string): Promise<Organization | null>;
+  /** 教室と招待を削除する。所属講師の organizationId の解除は呼び出し側で行う */
+  delete(id: string): Promise<void>;
+}
+
+export interface OrgInvitationRepository {
+  create(input: Omit<OrgInvitation, 'id' | 'createdAt' | 'respondedAt'>): Promise<OrgInvitation>;
+  update(id: string, patch: Partial<Omit<OrgInvitation, 'id' | 'createdAt'>>): Promise<OrgInvitation>;
+  findById(id: string): Promise<OrgInvitation | null>;
+  listPendingByOrganization(organizationId: string): Promise<OrgInvitation[]>;
+  listPendingByEmail(email: string): Promise<OrgInvitation[]>;
+}
+
 export interface GoogleCredentialStore {
   getRefreshToken(hostId: string): Promise<string | null>;
   saveRefreshToken(hostId: string, refreshToken: string): Promise<void>;
@@ -77,4 +98,6 @@ export interface Repositories {
   bookings: BookingRepository;
   changeRequests: ChangeRequestRepository;
   googleCredentials: GoogleCredentialStore;
+  organizations: OrganizationRepository;
+  invitations: OrgInvitationRepository;
 }

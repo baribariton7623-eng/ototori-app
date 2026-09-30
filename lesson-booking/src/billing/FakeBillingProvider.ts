@@ -1,4 +1,4 @@
-import type { Host } from '../domain/types.js';
+import type { Host, Organization } from '../domain/types.js';
 import type { BillingEvent, BillingProvider } from './BillingProvider.js';
 
 /**
@@ -20,6 +20,26 @@ export class FakeBillingProvider implements BillingProvider {
   }
 
   readonly canceled: string[] = [];
+  readonly seatUpdates: { orgId: string; seats: number }[] = [];
+  readonly canceledOrgs: string[] = [];
+
+  async createOrgCheckoutUrl(org: Organization, _owner: Host, seats: number, urls: { success: string }): Promise<string> {
+    const q = new URLSearchParams({ orgId: org.id, seats: String(seats), redirect: urls.success });
+    return `${this.apiBaseUrl}/billing/fake/org-activate?${q.toString()}`;
+  }
+
+  async createOrgPortalUrl(org: Organization, returnUrl: string): Promise<string> {
+    const q = new URLSearchParams({ orgId: org.id, redirect: returnUrl });
+    return `${this.apiBaseUrl}/billing/fake/org-cancel?${q.toString()}`;
+  }
+
+  async updateOrgSeats(org: Organization, seats: number): Promise<void> {
+    this.seatUpdates.push({ orgId: org.id, seats });
+  }
+
+  async cancelOrgImmediately(org: Organization): Promise<void> {
+    this.canceledOrgs.push(org.id);
+  }
 
   async cancelImmediately(host: Host): Promise<void> {
     this.canceled.push(host.id);

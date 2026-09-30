@@ -6,6 +6,8 @@ import type {
   ChangeRequest,
   Host,
   HostCalendar,
+  Organization,
+  OrgInvitation,
   Student,
 } from '../domain/types.js';
 import type {
@@ -15,6 +17,8 @@ import type {
   GoogleCredentialStore,
   HostCalendarRepository,
   HostRepository,
+  OrganizationRepository,
+  OrgInvitationRepository,
   Repositories,
   StudentRepository,
 } from './Repository.js';
@@ -53,6 +57,8 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
   const bookings = new Table<Booking>();
   const changes = new Table<ChangeRequest>();
   const tokens = new Map<string, string>();
+  const orgs = new Table<Organization>();
+  const invites = new Table<OrgInvitation>();
 
   const hostRepo: HostRepository = {
     async create(input) {
@@ -70,6 +76,9 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     },
     async findBySlug(slug) {
       return hosts.all().find((h) => h.slug === slug) ?? null;
+    },
+    async listByOrganization(organizationId) {
+      return hosts.all().filter((h) => h.organizationId === organizationId);
     },
     async findByConnectAccountId(accountId) {
       return hosts.all().find((h) => h.stripeConnectAccountId === accountId) ?? null;
@@ -226,7 +235,50 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     },
   };
 
+  const orgRepo: OrganizationRepository = {
+    async create(input) {
+      return orgs.insert({ ...input, createdAt: clock.now().toISOString() });
+    },
+    async update(id, patch) {
+      return orgs.patch(id, patch, '教室');
+    },
+    async findById(id) {
+      return orgs.rows.get(id) ?? null;
+    },
+    async findBySlug(slug) {
+      return orgs.all().find((o) => o.slug === slug) ?? null;
+    },
+    async findByStripeCustomerId(customerId) {
+      return orgs.all().find((o) => o.stripeCustomerId === customerId) ?? null;
+    },
+    async delete(id) {
+      orgs.rows.delete(id);
+      for (const i of invites.all()) if (i.organizationId === id) invites.rows.delete(i.id);
+    },
+  };
+
+  const inviteRepo: OrgInvitationRepository = {
+    async create(input) {
+      return invites.insert({ ...input, email: input.email.toLowerCase(), createdAt: clock.now().toISOString(), respondedAt: null });
+    },
+    async update(id, patch) {
+      return invites.patch(id, patch, '招待');
+    },
+    async findById(id) {
+      return invites.rows.get(id) ?? null;
+    },
+    async listPendingByOrganization(organizationId) {
+      return invites.all().filter((i) => i.organizationId === organizationId && i.status === 'pending');
+    },
+    async listPendingByEmail(email) {
+      const e = email.toLowerCase();
+      return invites.all().filter((i) => i.email === e && i.status === 'pending');
+    },
+  };
+
   return {
+    organizations: orgRepo,
+    invitations: inviteRepo,
     hosts: hostRepo,
     hostCalendars: calendarRepo,
     availabilityWindows: windowRepo,

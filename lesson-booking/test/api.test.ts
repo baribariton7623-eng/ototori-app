@@ -33,6 +33,7 @@ beforeAll(async () => {
     accounts: w.accounts,
     reminders: w.reminders,
     fees: w.fees,
+    organizations: w.organizations,
     cronSecret: 'cron-test-secret',
     fakeBilling: true,
     clock: w.clock,
@@ -342,5 +343,47 @@ describe('キャンセルフィー決済 API', () => {
       body: JSON.stringify({ type: 'ignored', raw: 'x' }),
     });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('教室プラン API', () => {
+  const OWNER = { 'x-dev-user-email': 'school-owner@example.com' };
+  const MEMBER = { 'x-dev-user-email': 'school-member@example.com' };
+
+  it('作成 → 招待 → 承諾 → 契約 → 公開ページ', async () => {
+    expect((await call('POST', '/hosts', OWNER, { displayName: '管理講師', slug: 'school-owner' })).status).toBe(201);
+    const created = await call('POST', '/orgs', OWNER, { name: 'さくら音楽教室', slug: 'sakura', bio: '駅前の音楽教室です' });
+    expect(created.status).toBe(201);
+    const orgId = created.json.id as string;
+
+    const inv = await call('POST', `/orgs/${orgId}/invitations`, OWNER, { email: 'school-member@example.com' });
+    expect(inv.status).toBe(201);
+    // 招待先は講師登録前でも招待を見られるが、承諾には講師登録が必要
+    expect((await call('GET', '/me/invitations', MEMBER)).json).toHaveLength(1);
+    expect((await call('POST', `/invitations/${inv.json.id}/accept`, MEMBER)).status).toBe(403);
+    expect((await call('POST', '/hosts', MEMBER, { displayName: '所属講師', slug: 'school-member' })).status).toBe(201);
+    expect((await call('POST', `/invitations/${inv.json.id}/accept`, MEMBER)).status).toBe(200);
+
+    const ownerView = await call('GET', '/me/organization', OWNER);
+    expect(ownerView.json.isOwner).toBe(true);
+    expect(ownerView.json.members.map((m: { email?: string }) => m.email).sort()).toEqual(['school-member@example.com', 'school-owner@example.com']);
+    const memberView = await call('GET', '/me/organization', MEMBER);
+    expect(memberView.json.isOwner).toBe(false);
+    expect(memberView.json.members.every((m: { email?: string }) => m.email === undefined)).toBe(true);
+
+    // 所属講師は契約できない
+    expect((await call('POST', `/orgs/${orgId}/billing/checkout`, MEMBER, { successUrl: 'http://localhost/', cancelUrl: 'http://localhost/' })).status).toBe(403);
+    const co = await call('POST', `/orgs/${orgId}/billing/checkout`, OWNER, { successUrl: 'http://localhost/#/host', cancelUrl: 'http://localhost/#/host' });
+    const u = new URL(co.json.url);
+    expect((await fetch(base + u.pathname + u.search, { redirect: 'manual' })).status).toBe(302);
+    const billing = await call('GET', `/hosts/${memberView.json.members.find((m: { slug: string }) => m.slug === 'school-member').id}/billing`, MEMBER);
+    expect(billing.json).toMatchObject({ effectivePlan: 'pro', viaOrganization: true });
+
+    const pub = await call('GET', '/orgs/by-slug/sakura', {});
+    expect(pub.status).toBe(200);
+    expect(pub.json.name).toBe('さくら音楽教室');
+    expect(pub.json.teachers.map((t: { slug: string }) => t.slug)).toEqual(['school-owner', 'school-member']);
+    expect(pub.json.teachers[0].email).toBeUndefined();
+    expect((await call('GET', '/orgs/by-slug/nothing', {})).status).toBe(404);
   });
 });

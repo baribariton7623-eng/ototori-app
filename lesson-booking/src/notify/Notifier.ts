@@ -1,4 +1,4 @@
-import type { Booking, ChangeKind, ChangeRequest, Host, Student } from '../domain/types.js';
+import type { Booking, ChangeKind, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
 
 interface Parties {
   host: Host;
@@ -24,6 +24,8 @@ export interface Notifier {
   lessonReminder(e: Parties & { booking: Booking }): Promise<void>;
   /** キャンセルフィーがオンラインで支払われた */
   feePaid(e: Parties & { booking: Booking }): Promise<void>;
+  /** 教室への招待(招待先はまだ登録していない可能性がある) */
+  orgInvited(e: { organization: Organization; inviter: Host; email: string }): Promise<void>;
 }
 
 export const noopNotifier: Notifier = {
@@ -34,6 +36,7 @@ export const noopNotifier: Notifier = {
   async cancelledByHost() {},
   async lessonReminder() {},
   async feePaid() {},
+  async orgInvited() {},
 };
 
 /** 通知の失敗をログに落として握りつぶす */

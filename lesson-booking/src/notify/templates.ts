@@ -1,6 +1,6 @@
 import { canCollectFeeOnline } from '../domain/plans.js';
 import { LATE_CHANGE_OPTION_LABELS } from '../domain/rules.js';
-import type { Booking, ChangeRequest, Host, Student } from '../domain/types.js';
+import type { Booking, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
 import type { EmailMessage } from './EmailSender.js';
 
 /**
@@ -225,6 +225,21 @@ export function feePaidMails(ctx: TemplateContext, host: Host, student: Student,
       to: student.email,
       subject: `【お支払い完了】キャンセルフィー ${amount}`,
       text: `${studentName(student)}\n\n${host.displayName} へのキャンセルフィー(${amount})のお支払いが完了しました。\n\n対象のレッスン: ${range(booking, tz)}` + footer(ctx),
+    },
+  ];
+}
+
+export function orgInvitedMails(ctx: TemplateContext, org: Organization, inviter: Host, email: string): EmailMessage[] {
+  return [
+    {
+      to: email,
+      subject: `【招待】${inviter.displayName} さんから教室「${org.name}」への招待が届いています`,
+      text:
+        `${inviter.displayName} さんが、あなたを教室「${org.name}」の講師として招待しました。\n\n` +
+        `参加するには:\n1. ${ctx.appBaseUrl}/ を開き、このメールアドレス(${email})でログインする\n` +
+        `2. まだ講師登録をしていなければ「講師の方」から登録する\n3. 講師画面の「教室」タブで招待を承諾する\n\n` +
+        `教室に参加すると、教室の契約でプロプランの機能が使えるようになります。あなたの予約や生徒の情報が教室の管理者に共有されることはありません。` +
+        footer(ctx),
     },
   ];
 }

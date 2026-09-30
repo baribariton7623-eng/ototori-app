@@ -13,6 +13,10 @@ import type {
   HostChangeRequest,
   LateChangeOption,
   Me,
+  MyInvitation,
+  MyOrganization,
+  Organization,
+  PublicOrganization,
   PublicHost,
   Rules,
   Slot,
@@ -88,6 +92,23 @@ export const api = {
   connectDisconnect: (hostId: string) => request<void>('DELETE', `/hosts/${hostId}/connect`),
   feeCheckout: (bookingId: string, successUrl: string, cancelUrl: string) =>
     request<{ url: string }>('POST', `/bookings/${bookingId}/fee-checkout`, { successUrl, cancelUrl }),
+  // 教室
+  orgBySlug: (slug: string) => request<PublicOrganization>('GET', `/orgs/by-slug/${encodeURIComponent(slug)}`),
+  myOrganization: () => request<MyOrganization | null>('GET', '/me/organization'),
+  myInvitations: () => request<MyInvitation[]>('GET', '/me/invitations'),
+  acceptInvitation: (id: string) => request<Organization>('POST', `/invitations/${id}/accept`),
+  declineInvitation: (id: string) => request<void>('POST', `/invitations/${id}/decline`),
+  createOrg: (input: { name: string; slug: string; bio?: string }) => request<Organization>('POST', '/orgs', input),
+  updateOrg: (id: string, patch: { name?: string; slug?: string; bio?: string }) => request<Organization>('PATCH', `/orgs/${id}`, patch),
+  deleteOrg: (id: string) => request<void>('DELETE', `/orgs/${id}`),
+  leaveOrg: () => request<void>('POST', '/me/organization/leave'),
+  inviteToOrg: (id: string, email: string) => request<unknown>('POST', `/orgs/${id}/invitations`, { email }),
+  revokeInvitation: (orgId: string, id: string) => request<void>('DELETE', `/orgs/${orgId}/invitations/${id}`),
+  removeMember: (orgId: string, hostId: string) => request<void>('DELETE', `/orgs/${orgId}/members/${hostId}`),
+  orgCheckout: (id: string, successUrl: string, cancelUrl: string) =>
+    request<{ url: string }>('POST', `/orgs/${id}/billing/checkout`, { successUrl, cancelUrl }),
+  orgPortal: (id: string, returnUrl: string) => request<{ url: string }>('POST', `/orgs/${id}/billing/portal`, { returnUrl }),
+
   billing: (hostId: string) => request<BillingInfo>('GET', `/hosts/${hostId}/billing`),
   checkout: (hostId: string, successUrl: string, cancelUrl: string) =>
     request<{ url: string }>('POST', `/hosts/${hostId}/billing/checkout`, { successUrl, cancelUrl }),

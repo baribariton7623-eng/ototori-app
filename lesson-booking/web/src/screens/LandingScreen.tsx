@@ -69,6 +69,13 @@ export function LandingScreen({ rules, onLogin }: { rules: Rules; onLogin: () =>
             </ul>
           </div>
         </div>
+        <div className="card space-y-1">
+          <div className="font-semibold">教室プラン</div>
+          <div className="text-sm text-stone-700">
+            複数の講師がいる教室向け。講師を招待してまとめて契約でき、所属講師全員がプロの機能を使えます。教室ページから各講師の予約ページへ案内できます。
+          </div>
+          <div className="text-sm font-medium">{operator.orgSeatPrice ?? '講師の人数に応じた月額制'}</div>
+        </div>
       </section>
 
       <section className="card space-y-3">
@@ -79,6 +86,9 @@ export function LandingScreen({ rules, onLogin }: { rules: Rules; onLogin: () =>
         </Faq>
         <Faq q="カレンダーの予定の中身は見られますか?">
           見ません。空き枠の計算に「予定がある時間帯」だけを使い、件名や内容は取得しません。
+        </Faq>
+        <Faq q="教室の管理者は、ほかの講師の予約を見られますか?">
+          見られません。予約や生徒の情報は講師ごとに独立しています。管理者ができるのは、講師の招待・解除と教室プランの契約管理です。
         </Faq>
         <Faq q="途中でやめられますか?">
           プロプランはいつでも解約できます。退会すると登録情報と予約情報は削除され、今後の予約は生徒に通知したうえで取り消されます。

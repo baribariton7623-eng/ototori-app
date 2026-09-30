@@ -31,6 +31,8 @@ const schema = z.object({
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
   STRIPE_PRICE_ID_PRO: z.string().default(''),
+  /** 教室プランの Price ID(講師 1 人あたり月額)。空なら教室プランの契約ボタンはエラーになる */
+  STRIPE_PRICE_ID_ORG_SEAT: z.string().default(''),
   /** Connect(連結アカウント)イベント用 Webhook の署名シークレット。キャンセルフィー決済に使う */
   STRIPE_CONNECT_WEBHOOK_SECRET: z.string().default(''),
 });

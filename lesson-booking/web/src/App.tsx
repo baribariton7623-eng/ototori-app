@@ -11,12 +11,14 @@ import { HostScreen } from './screens/HostScreen';
 import { LandingScreen } from './screens/LandingScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { MyBookingsScreen } from './screens/MyBookingsScreen';
+import { OrgPageScreen } from './screens/OrgPageScreen';
 import { StudentHomeScreen } from './screens/StudentHomeScreen';
 
 type Route =
   | { name: 'legal'; page: 'terms' | 'privacy' | 'tokushoho' }
   | { name: 'home' }
   | { name: 'host-page'; slug: string }
+  | { name: 'org-page'; slug: string }
   | { name: 'mine' }
   | { name: 'host' }
   | { name: 'become-host' };
@@ -28,6 +30,8 @@ function readRoute(): Route {
   const h = window.location.hash.replace(/^#\/?/, '');
   const m = /^h\/([^/?#]+)/.exec(h);
   if (m?.[1]) return { name: 'host-page', slug: decodeURIComponent(m[1]) };
+  const o = /^o\/([^/?#]+)/.exec(h);
+  if (o?.[1]) return { name: 'org-page', slug: decodeURIComponent(o[1]) };
   if (h === 'mine') return { name: 'mine' };
   if (h === 'host') return { name: 'host' };
   if (h === 'become-host') return { name: 'become-host' };
@@ -106,6 +110,8 @@ export function App() {
   let content: React.ReactNode;
   if (route.name === 'legal') {
     content = route.page === 'terms' ? <TermsPage /> : route.page === 'privacy' ? <PrivacyPage /> : <TokushohoPage />;
+  } else if (route.name === 'org-page') {
+    content = <OrgPageScreen slug={route.slug} />;
   } else if (route.name === 'host-page') {
     content = (
       <BookScreen slug={route.slug} rules={rules} signedIn={signedIn} onRequireLogin={openLogin} onBooked={() => setBookingsKey((k) => k + 1)} />

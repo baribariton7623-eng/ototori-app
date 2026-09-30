@@ -6,6 +6,8 @@ import type {
   ChangeRequest,
   Host,
   HostCalendar,
+  Organization,
+  OrgInvitation,
   Student,
 } from '../domain/types.js';
 import type { Repositories } from './Repository.js';
@@ -45,6 +47,8 @@ const hostFromRow = (r: Row): Host => ({
   cancellationFeeAmount: (r.cancellation_fee_amount as number | null) ?? null,
   stripeConnectAccountId: (r.stripe_connect_account_id as string | null) ?? null,
   connectChargesEnabled: (r.connect_charges_enabled as boolean | null) ?? false,
+  organizationId: (r.organization_id as string | null) ?? null,
+  orgPlanActive: (r.org_plan_active as boolean | null) ?? false,
   timezone: r.timezone as string,
   lessonMinutes: r.lesson_minutes as number,
   minLeadMinutes: r.min_lead_minutes as number,
@@ -62,6 +66,8 @@ const hostToRow = (h: Partial<Host>): Row => strip({
   cancellation_fee_amount: h.cancellationFeeAmount,
   stripe_connect_account_id: h.stripeConnectAccountId,
   connect_charges_enabled: h.connectChargesEnabled,
+  organization_id: h.organizationId,
+  org_plan_active: h.orgPlanActive,
   timezone: h.timezone,
   lesson_minutes: h.lessonMinutes,
   min_lead_minutes: h.minLeadMinutes,
@@ -146,6 +152,37 @@ const changeToRow = (c: Partial<ChangeRequest>): Row => strip({
   decided_at: c.decidedAt,
 });
 
+const orgFromRow = (r: Row): Organization => ({
+  id: r.id as string,
+  name: r.name as string,
+  slug: r.slug as string,
+  bio: (r.bio as string | null) ?? '',
+  ownerHostId: r.owner_host_id as string,
+  subscriptionStatus: r.subscription_status as Organization['subscriptionStatus'],
+  stripeCustomerId: (r.stripe_customer_id as string | null) ?? null,
+  stripeSubscriptionId: (r.stripe_subscription_id as string | null) ?? null,
+  createdAt: r.created_at as string,
+});
+const orgToRow = (o: Partial<Organization>): Row => strip({
+  name: o.name,
+  slug: o.slug,
+  bio: o.bio,
+  owner_host_id: o.ownerHostId,
+  subscription_status: o.subscriptionStatus,
+  stripe_customer_id: o.stripeCustomerId,
+  stripe_subscription_id: o.stripeSubscriptionId,
+});
+
+const inviteFromRow = (r: Row): OrgInvitation => ({
+  id: r.id as string,
+  organizationId: r.organization_id as string,
+  email: r.email as string,
+  status: r.status as OrgInvitation['status'],
+  invitedByHostId: r.invited_by_host_id as string,
+  createdAt: r.created_at as string,
+  respondedAt: (r.responded_at as string | null) ?? null,
+});
+
 function strip(row: Row): Row {
   const out: Row = {};
   for (const [k, v] of Object.entries(row)) if (v !== undefined) out[k] = v;
@@ -172,6 +209,9 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       async findBySlug(slug) {
         const r = maybe(await sb.from('lb_hosts').select().eq('slug', slug).maybeSingle<Row>(), '主催者');
         return r ? hostFromRow(r) : null;
+      },
+      async listByOrganization(organizationId) {
+        return must(await sb.from('lb_hosts').select().eq('organization_id', organizationId).returns<Row[]>(), '所属講師').map(hostFromRow);
       },
       async findByConnectAccountId(accountId) {
         const r = maybe(await sb.from('lb_hosts').select().eq('stripe_connect_account_id', accountId).maybeSingle<Row>(), '主催者');
@@ -322,6 +362,60 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       },
       async listByBooking(bookingId) {
         return must(await sb.from('lb_change_requests').select().eq('booking_id', bookingId).order('created_at').returns<Row[]>(), '変更要求一覧').map(changeFromRow);
+      },
+    },
+    organizations: {
+      async create(input) {
+        return orgFromRow(must(await sb.from('lb_organizations').insert(orgToRow(input)).select().single<Row>(), '教室作成'));
+      },
+      async update(id, patch) {
+        return orgFromRow(must(await sb.from('lb_organizations').update(orgToRow(patch)).eq('id', id).select().single<Row>(), '教室更新'));
+      },
+      async findById(id) {
+        const r = maybe(await sb.from('lb_organizations').select().eq('id', id).maybeSingle<Row>(), '教室');
+        return r ? orgFromRow(r) : null;
+      },
+      async findBySlug(slug) {
+        const r = maybe(await sb.from('lb_organizations').select().eq('slug', slug).maybeSingle<Row>(), '教室');
+        return r ? orgFromRow(r) : null;
+      },
+      async findByStripeCustomerId(customerId) {
+        const r = maybe(await sb.from('lb_organizations').select().eq('stripe_customer_id', customerId).maybeSingle<Row>(), '教室');
+        return r ? orgFromRow(r) : null;
+      },
+      async delete(id) {
+        maybe(await sb.from('lb_organizations').delete().eq('id', id), '教室削除');
+      },
+    },
+    invitations: {
+      async create(input) {
+        const res = await sb
+          .from('lb_org_invitations')
+          .insert({ organization_id: input.organizationId, email: input.email.toLowerCase(), status: input.status, invited_by_host_id: input.invitedByHostId })
+          .select()
+          .single<Row>();
+        if (res.error?.code === '23505') throw new DomainError('validation', 'このメールアドレスには既に招待を送っています');
+        return inviteFromRow(must(res, '招待作成'));
+      },
+      async update(id, patch) {
+        const row = strip({ status: patch.status, responded_at: patch.respondedAt });
+        return inviteFromRow(must(await sb.from('lb_org_invitations').update(row).eq('id', id).select().single<Row>(), '招待更新'));
+      },
+      async findById(id) {
+        const r = maybe(await sb.from('lb_org_invitations').select().eq('id', id).maybeSingle<Row>(), '招待');
+        return r ? inviteFromRow(r) : null;
+      },
+      async listPendingByOrganization(organizationId) {
+        return must(
+          await sb.from('lb_org_invitations').select().eq('organization_id', organizationId).eq('status', 'pending').order('created_at').returns<Row[]>(),
+          '招待一覧',
+        ).map(inviteFromRow);
+      },
+      async listPendingByEmail(email) {
+        return must(
+          await sb.from('lb_org_invitations').select().ilike('email', email).eq('status', 'pending').order('created_at').returns<Row[]>(),
+          '招待一覧',
+        ).map(inviteFromRow);
       },
     },
     googleCredentials: {
