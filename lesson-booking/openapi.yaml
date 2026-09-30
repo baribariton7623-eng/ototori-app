@@ -282,6 +282,15 @@ paths:
                     - type: object
                       properties:
                         optionLabel: { type: string }
+                        feeMethodLabel: { type: [string, 'null'] }
+                        candidates:
+                          type: array
+                          description: 承認待ちの振替の希望日時と、現在空いているか
+                          items:
+                            type: object
+                            properties:
+                              startAt: { type: string, format: date-time }
+                              available: { type: boolean }
                         booking: { $ref: '#/components/schemas/Booking' }
                         student: { $ref: '#/components/schemas/StudentSummary' }
   /hosts/{hostId}/change-requests/{id}/decision:
@@ -299,6 +308,7 @@ paths:
               properties:
                 decision: { type: string, enum: [approve, reject] }
                 note: { type: string }
+                startAt: { type: string, format: date-time, description: 振替の承認で、希望日時の中から選んだ振替先(候補が 1 つなら省略可) }
       responses:
         '200':
           description: OK
@@ -359,7 +369,7 @@ paths:
       description: |
         レッスン開始まで 14 日以上: 即時反映(200, type=applied)。
         14 日未満: message と option が必須。変更要求を作成して承認待ち(202, type=pending_approval)。
-        kind=reschedule または option=reschedule_within_two_weeks では proposedStartAt(元の日から前後 14 日以内)が必須。
+        kind=reschedule または option=reschedule_within_two_weeks では proposedStartAts(第1〜第3希望、元の日から前後 14 日以内)が必須。
       requestBody:
         required: true
         content:
@@ -371,7 +381,12 @@ paths:
                 kind: { type: string, enum: [cancel, reschedule] }
                 message: { type: string, description: 直前変更時は必須 }
                 option: { $ref: '#/components/schemas/LateChangeOption' }
-                proposedStartAt: { type: string, format: date-time }
+                proposedStartAts:
+                  type: array
+                  maxItems: 3
+                  items: { type: string, format: date-time }
+                  description: 振替の希望日時(第1希望から順)。直前は 1〜3 件、猶予ありの即時変更は 1 件
+                proposedStartAt: { type: string, format: date-time, deprecated: true, description: 旧形式(希望日時 1 件) }
                 feeMethod:
                   $ref: '#/components/schemas/FeeMethod'
                   description: option=pay_cancellation_fee のとき必須(kind=cancel のみ)。主催者が受け付けている方法から選ぶ
@@ -932,7 +947,8 @@ components:
         kind: { type: string, enum: [cancel, reschedule] }
         option: { $ref: '#/components/schemas/LateChangeOption' }
         message: { type: string }
-        proposedStartAt: { type: [string, 'null'], format: date-time }
+        proposedStartAts: { type: array, items: { type: string, format: date-time }, description: 振替の希望日時(第1希望から順、最大 3) }
+        approvedStartAt: { type: [string, 'null'], format: date-time, description: 講師が承認時に選んだ振替先 }
         feeMethod: { oneOf: [{ $ref: '#/components/schemas/FeeMethod' }, { type: 'null' }] }
         status: { type: string, enum: [pending, approved, rejected] }
         decisionNote: { type: [string, 'null'] }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChangeKind, ChangeOutcome, FeeMethod, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
-import { addDays, fmtRange, yen } from '../lib/format';
+import { addDays, fmtFull, fmtRange, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
 
@@ -21,7 +21,8 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const [kind, setKind] = useState<ChangeKind>('cancel');
   const [option, setOption] = useState<LateChangeOption | ''>('');
   const [message, setMessage] = useState('');
-  const [proposed, setProposed] = useState<string | null>(null);
+  /** 振替の希望日時(第1希望から順)。猶予ありの即時変更では 1 つだけ */
+  const [proposed, setProposed] = useState<string[]>([]);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -44,6 +45,24 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const methodLabel = (m: FeeMethod) => rules.feeMethods.find((x) => x.value === m)?.label ?? m;
 
   const needsSlot = kind === 'reschedule';
+  const maxCandidates = late ? 3 : 1;
+
+  function toggleCandidate(startAt: string) {
+    setProposed((cur) => {
+      if (cur.includes(startAt)) return cur.filter((x) => x !== startAt);
+      if (maxCandidates === 1) return [startAt];
+      if (cur.length >= maxCandidates) return cur; // 上限。先にどれかを外してもらう
+      return [...cur, startAt];
+    });
+  }
+  function moveUp(i: number) {
+    setProposed((cur) => {
+      if (i <= 0) return cur;
+      const next = [...cur];
+      [next[i - 1], next[i]] = [next[i] as string, next[i - 1] as string];
+      return next;
+    });
+  }
 
   // 振替候補: 元の日の前後 rescheduleRangeDays 日(直前時)/ 受付ウィンドウ全体(猶予あり)
   useEffect(() => {
@@ -65,7 +84,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
 
   const canSubmit =
     !busy &&
-    (!needsSlot || proposed !== null) &&
+    (!needsSlot || proposed.length > 0) &&
     (!late || (message.trim().length > 0 && option !== '')) &&
     (!payingFee || feeMethod !== '');
 
@@ -77,7 +96,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
         kind,
         message: late ? message.trim() : undefined,
         option: late && option ? option : undefined,
-        proposedStartAt: needsSlot && proposed ? proposed : undefined,
+        proposedStartAts: needsSlot && proposed.length > 0 ? proposed : undefined,
         feeMethod: payingFee && feeMethod ? feeMethod : undefined,
       });
       onDone(outcome);
@@ -178,15 +197,47 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
         )}
 
         {needsSlot && (
-          <div>
+          <div className="space-y-2">
             <div className="label">
-              振替先の日時{late ? `(元の日から前後${rules.rescheduleRangeDays}日以内)` : ''}
+              {late
+                ? `振替の希望日時(第1〜第${maxCandidates}希望まで・元の日から前後${rules.rescheduleRangeDays}日以内)`
+                : '変更先の日時'}
             </div>
+            {late && (
+              <p className="text-xs text-stone-600">
+                希望順に選んでください(1つでも可)。講師が候補の中から1つを選んで承認します。候補の枠は確保されないため、承認までに埋まることがあります。
+              </p>
+            )}
+            {late && proposed.length > 0 && (
+              <ol className="space-y-1" aria-label="選択中の希望日時">
+                {proposed.map((p, i) => (
+                  <li key={p} className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 text-sm">
+                    <span>
+                      <span className="inline-block w-14 text-xs font-medium text-emerald-800">第{i + 1}希望</span>
+                      {fmtFull(p)}
+                    </span>
+                    <span className="flex gap-2 text-xs">
+                      {i > 0 && (
+                        <button type="button" className="underline text-stone-600" onClick={() => moveUp(i)} aria-label={`第${i + 1}希望を1つ上げる`}>
+                          ↑上げる
+                        </button>
+                      )}
+                      <button type="button" className="underline text-red-700" onClick={() => toggleCandidate(p)} aria-label={`第${i + 1}希望を外す`}>
+                        外す
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {late && proposed.length >= maxCandidates && (
+              <p className="text-xs text-amber-800">第{maxCandidates}希望まで選びました。変えるときは「外す」を押してください。</p>
+            )}
             {slots === null ? (
               <div className="text-sm text-stone-500">空き枠を取得中…</div>
             ) : (
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-stone-200 p-2">
-                <SlotPicker slots={slots} selected={proposed} onSelect={setProposed} />
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-stone-200 p-2 pt-3">
+                <SlotPicker slots={slots} selected={late ? proposed : (proposed[0] ?? null)} onSelect={toggleCandidate} />
               </div>
             )}
           </div>

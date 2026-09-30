@@ -5,6 +5,7 @@ import { monthRange } from '../domain/time.js';
 import {
   FEE_METHOD_LABELS,
   assertWithinBookingWindow,
+  validateCandidates,
   isLateChange,
   isWithinRescheduleRange,
   validateLateChangeRequest,
@@ -31,8 +32,11 @@ export interface ChangeInput {
   /** 直前変更時に必須 */
   message?: string | undefined;
   option?: LateChangeOption | undefined;
-  /** kind=reschedule のとき必須 */
-  proposedStartAt?: Date | undefined;
+  /**
+   * kind=reschedule のとき必須。第1希望から順。
+   * 猶予あり(即時反映)の変更では 1 件だけ、直前(承認制)では最大 3 件
+   */
+  proposedStartAts?: Date[] | undefined;
   /** option=pay_cancellation_fee のとき必須 */
   feeMethod?: FeeMethod | undefined;
 }
@@ -124,16 +128,16 @@ export class BookingService {
       });
     }
 
-    if (input.kind === 'reschedule' && !input.proposedStartAt) {
-      throw new DomainError('validation', '振替希望日時を指定してください', { field: 'proposedStartAt' });
-    }
+    const candidates = input.proposedStartAts ?? [];
 
     if (!isLateChange(lessonStart, now)) {
-      // 猶予あり → 即時反映
+      // 猶予あり → 即時反映。承認がないので変更先は 1 つに決まっている必要がある
+      let newStart: Date | null = null;
+      if (input.kind === 'reschedule') {
+        newStart = validateCandidates(booking, candidates, 1)[0] as Date;
+      }
       const updated =
-        input.kind === 'cancel'
-          ? await this.applyCancel(host, booking, 'none')
-          : await this.applyReschedule(host, booking, input.proposedStartAt as Date);
+        input.kind === 'cancel' ? await this.applyCancel(host, booking, 'none') : await this.applyReschedule(host, booking, newStart as Date);
       await safeNotify(() =>
         this.notifier.bookingChanged({ host, student: input.student, kind: input.kind, before: booking, after: updated }),
       );
@@ -145,7 +149,7 @@ export class BookingService {
       kind: input.kind,
       option: input.option,
       message: input.message,
-      proposedStartAt: input.proposedStartAt,
+      proposedStartAts: candidates,
     });
     let feeMethod: FeeMethod | null = null;
     if (validated.option === 'pay_cancellation_fee') {
@@ -163,12 +167,13 @@ export class BookingService {
       }
       feeMethod = input.feeMethod;
     }
-    if (validated.proposedStartAt) {
-      // 振替先は受付ウィンドウ内かつ空いていることを要求時点でも確認する
-      assertWithinBookingWindow(validated.proposedStartAt, now, host.minLeadMinutes);
-      if (!(await this.availability.isSlotAvailable(host, validated.proposedStartAt, booking.id))) {
-        throw new DomainError('slot_unavailable', '振替希望の枠は予約できません', {
-          proposedStartAt: validated.proposedStartAt.toISOString(),
+    // 希望日時はすべて、受付ウィンドウ内かつ申請時点で空いていること(候補の枠は確保しない。承認時に再確認する)
+    for (const [i, c] of validated.proposedStartAts.entries()) {
+      assertWithinBookingWindow(c, now, host.minLeadMinutes);
+      if (!(await this.availability.isSlotAvailable(host, c, booking.id))) {
+        throw new DomainError('slot_unavailable', `第${i + 1}希望の枠は予約できません。別の日時を選んでください`, {
+          proposedStartAt: c.toISOString(),
+          rank: i + 1,
         });
       }
     }
@@ -180,7 +185,8 @@ export class BookingService {
       kind: input.kind,
       option: validated.option,
       message: validated.message,
-      proposedStartAt: validated.proposedStartAt?.toISOString() ?? null,
+      proposedStartAts: validated.proposedStartAts.map((c) => c.toISOString()),
+      approvedStartAt: null,
       feeMethod,
       status: 'pending',
       decisionNote: null,
@@ -200,6 +206,8 @@ export class BookingService {
     hostId: string,
     decision: 'approve' | 'reject',
     note?: string,
+    /** 振替の承認時に、講師が希望日時の中から選んだ日時。候補が 1 つなら省略可 */
+    chosenStartAt?: Date,
   ): Promise<{ request: ChangeRequest; booking: Booking }> {
     const request = await this.repos.changeRequests.findById(requestId);
     if (!request) throw new DomainError('not_found', '変更要求が見つかりません', { requestId });
@@ -224,6 +232,7 @@ export class BookingService {
     }
 
     let updated: Booking;
+    let approvedStartAt: string | null = null;
     if (request.kind === 'cancel') {
       const fee = request.option === 'pay_cancellation_fee' ? 'pending' : 'none';
       updated = await this.applyCancel(host, booking, fee);
@@ -235,21 +244,55 @@ export class BookingService {
         });
       }
     } else {
-      if (!request.proposedStartAt) throw new DomainError('invalid_state', '振替先日時がありません');
-      const proposed = new Date(request.proposedStartAt);
+      const proposed = this.pickCandidate(request, chosenStartAt);
       if (!isWithinRescheduleRange(new Date(booking.startAt), proposed)) {
         throw new DomainError('validation', '振替先が範囲外です');
       }
+      // 申請後に埋まっていれば slot_unavailable。講師は別の候補を選ぶか却下する
       updated = await this.applyReschedule(host, booking, proposed);
+      approvedStartAt = proposed.toISOString();
     }
     const approved = await this.repos.changeRequests.update(request.id, {
       status: 'approved',
+      approvedStartAt,
       decisionNote: note?.trim() || null,
       decidedAt: now,
     });
     const after = updated;
     await safeNotify(() => this.notifier.changeDecided({ host, student, request: approved, before: booking, after }));
     return { request: approved, booking: updated };
+  }
+
+  /** 振替の候補ごとに、今も空いているか(講師の承認画面用) */
+  async candidateAvailability(request: ChangeRequest): Promise<{ startAt: string; available: boolean }[]> {
+    if (request.kind !== 'reschedule' || request.status !== 'pending') return [];
+    const host = await this.availability.getHost(request.hostId);
+    const now = this.clock.now();
+    const out = [];
+    for (const iso of request.proposedStartAts) {
+      const d = new Date(iso);
+      const available = d.getTime() > now.getTime() && (await this.availability.isSlotAvailable(host, d, request.bookingId));
+      out.push({ startAt: iso, available });
+    }
+    return out;
+  }
+
+  private pickCandidate(request: ChangeRequest, chosen: Date | undefined): Date {
+    if (request.proposedStartAts.length === 0) throw new DomainError('invalid_state', '振替の希望日時がありません');
+    if (!chosen) {
+      if (request.proposedStartAts.length > 1) {
+        throw new DomainError('validation', '希望日時の中から振替先を選んでください', {
+          field: 'startAt',
+          candidates: request.proposedStartAts,
+        });
+      }
+      return new Date(request.proposedStartAts[0] as string);
+    }
+    const iso = chosen.toISOString();
+    if (!request.proposedStartAts.includes(iso)) {
+      throw new DomainError('validation', '振替先は生徒の希望日時の中から選んでください', { field: 'startAt', candidates: request.proposedStartAts });
+    }
+    return chosen;
   }
 
   /**

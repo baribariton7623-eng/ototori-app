@@ -129,6 +129,9 @@ const changeSchema = z.object({
   kind: z.enum(['cancel', 'reschedule']),
   message: z.string().trim().max(2000).optional(),
   option: z.enum(LATE_CHANGE_OPTIONS).optional(),
+  /** 振替の希望日時(第1希望から順、最大 3 件) */
+  proposedStartAts: z.array(isoDate).max(3).optional(),
+  /** 旧形式(希望日時 1 件)。proposedStartAts と同時には使わない */
   proposedStartAt: isoDate.optional(),
   feeMethod: z.enum(FEE_METHODS).optional(),
 });
@@ -136,6 +139,8 @@ const changeSchema = z.object({
 const decisionSchema = z.object({
   decision: z.enum(['approve', 'reject']),
   note: z.string().trim().max(2000).optional(),
+  /** 振替の承認時、希望日時の中から選んだ振替先(候補が 1 つなら省略可) */
+  startAt: isoDate.optional(),
 });
 
 // ---------- アプリ ----------
@@ -350,6 +355,7 @@ function hostRoutes(deps: AppDeps): Router {
         ...c,
         optionLabel: LATE_CHANGE_OPTION_LABELS[c.option],
         feeMethodLabel: c.feeMethod ? FEE_METHOD_LABELS[c.feeMethod] : null,
+        candidates: await deps.bookings.candidateAvailability(c),
         booking,
         student: student ? { id: student.id, email: student.email, name: student.name } : null,
       });
@@ -360,7 +366,7 @@ function hostRoutes(deps: AppDeps): Router {
   r.post('/hosts/:hostId/change-requests/:id/decision', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     const body = decisionSchema.parse(req.body);
-    res.json(await deps.bookings.decideRequest(param(req, 'id'), host.id, body.decision, body.note));
+    res.json(await deps.bookings.decideRequest(param(req, 'id'), host.id, body.decision, body.note, body.startAt));
   }));
 
   r.post('/hosts/:hostId/bookings/:id/fee-paid', wrap(async (req, res) => {
@@ -693,7 +699,7 @@ function studentRoutes(deps: AppDeps): Router {
       kind: body.kind,
       message: body.message,
       option: body.option,
-      proposedStartAt: body.proposedStartAt,
+      proposedStartAts: body.proposedStartAts ?? (body.proposedStartAt ? [body.proposedStartAt] : undefined),
       feeMethod: body.feeMethod,
     });
     res.status(outcome.type === 'applied' ? 200 : 202).json(outcome);

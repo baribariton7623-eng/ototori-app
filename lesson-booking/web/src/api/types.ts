@@ -143,7 +143,10 @@ export interface ChangeRequest {
   kind: ChangeKind;
   option: LateChangeOption;
   message: string;
-  proposedStartAt: string | null;
+  /** 振替の希望日時(第1希望から順) */
+  proposedStartAts: string[];
+  /** 承認時に講師が選んだ振替先 */
+  approvedStartAt: string | null;
   feeMethod: FeeMethod | null;
   status: 'pending' | 'approved' | 'rejected';
   decisionNote: string | null;
@@ -154,6 +157,8 @@ export interface ChangeRequest {
 export interface HostChangeRequest extends ChangeRequest {
   optionLabel: string;
   feeMethodLabel: string | null;
+  /** 承認待ちの振替: 候補ごとの現在の空き状況 */
+  candidates: { startAt: string; available: boolean }[];
   booking: Booking | null;
   student: StudentSummary | null;
 }

@@ -72,7 +72,7 @@ describe('キャンセル・変更(猶予あり: 14日以上前)', () => {
   it('変更は即時反映され、イベントの時刻も更新される', async () => {
     const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: FAR });
     const newStart = jst('2026-10-21T11:00:00');
-    const out = await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'reschedule', proposedStartAt: newStart });
+    const out = await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'reschedule', proposedStartAts: [newStart] });
     expect(out.type).toBe('applied');
     expect(out.booking.startAt).toBe(newStart.toISOString());
     expect(w.calendar.listEvents()[0]?.startAt).toBe(newStart.toISOString());
@@ -166,7 +166,7 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
         kind: 'reschedule',
         message: 'x',
         option: 'reschedule_within_two_weeks',
-        proposedStartAt: jst('2026-10-21T10:00:00'),
+        proposedStartAts: [jst('2026-10-21T10:00:00')],
       }),
     ).rejects.toMatchObject({ code: 'validation' });
 
@@ -177,10 +177,10 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
       kind: 'reschedule',
       message: '翌週に振り替えたいです',
       option: 'reschedule_within_two_weeks',
-      proposedStartAt: proposed,
+      proposedStartAts: [proposed],
     });
     if (r.type !== 'pending_approval') throw new Error('unexpected');
-    expect(r.request.proposedStartAt).toBe(proposed.toISOString());
+    expect(r.request.proposedStartAts).toEqual([proposed.toISOString()]);
     // 承認待ちの間は元の枠が確定のまま(他の生徒はその枠を取れない)
     expect((await w.availability.listSlots(w.host.id)).some((s) => s.startAt === NEAR.toISOString())).toBe(false);
 
@@ -204,7 +204,7 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
         kind: 'reschedule',
         message: 'x',
         option: 'reschedule_within_two_weeks',
-        proposedStartAt: taken,
+        proposedStartAts: [taken],
       }),
     ).rejects.toMatchObject({ code: 'slot_unavailable' });
   });

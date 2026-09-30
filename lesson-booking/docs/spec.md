@@ -75,23 +75,27 @@
 | 値 | 表示 | 意味 |
 | --- | --- | --- |
 | `request_approval` | 事情を説明して承認を求める | そのままキャンセル/変更の承認を求める |
-| `reschedule_within_two_weeks` | 2週間以内の別日に振替を希望する | 元のレッスン日から **前後 14 日以内** の空き枠を `proposedStartAt` で指定する(必須) |
+| `reschedule_within_two_weeks` | 2週間以内の別日に振替を希望する | 元のレッスン日から **前後 14 日以内** の空き枠を、**第1〜第3希望**として `proposedStartAts` に希望順で指定する(1〜3 件、必須) |
 | `pay_cancellation_fee` | キャンセルフィーを支払う | **キャンセルの申請でのみ選べる**。支払い方法(`feeMethod`: クレジットカード / 銀行振込 / 次回レッスン時に手渡し)の選択が必須で、主催者がキャンセルとあわせて承認する。承認時に `cancellationFeeStatus = pending`、主催者設定の金額を `cancellationFeeAmount`、支払い方法を `cancellationFeeMethod` に記録する(§3.8.1) |
 
 制約:
 - 1 予約につき `pending` の変更要求は 1 件まで(`change_request_pending`)。
 - 開始済み・終了済み・キャンセル済みの予約は変更できない(`invalid_state`)。
-- `kind = reschedule` の場合は `proposedStartAt` 必須。振替先は要求時点でも受付ウィンドウ内・空きであることを検証する(承認時にも再検証)。
+- `kind = reschedule` の場合は `proposedStartAts` 必須。
+  - 直前(承認制): 1〜3 件。重複不可、今の予約と同じ日時は不可、いずれも元の日から前後 14 日以内・受付ウィンドウ内・申請時点で空いていること(埋まっていれば `slot_unavailable`、`details.rank` に何番目の希望か)。
+  - 猶予あり(即時反映): 承認がないため 1 件のみ。
+  - 候補の枠は確保しない(3 枠を押さえると他の生徒が予約できなくなるため)。承認時に再検証する。
 - 承認待ちの間、元の枠は確定予約として扱い、他の生徒には空きとして見せない。
 
 ### 3.5 承認・却下(主催者)
 
 | 判断 | kind=cancel | kind=reschedule |
 | --- | --- | --- |
-| approve | 予約を `cancelled`、イベント削除。option が `pay_cancellation_fee` なら `cancellationFeeStatus = pending` | 振替先の空きを再検証し、日時更新 + イベント更新。元の枠は空きに戻る |
+| approve | 予約を `cancelled`、イベント削除。option が `pay_cancellation_fee` なら `cancellationFeeStatus = pending` | 主催者が希望日時の中から 1 つ(`startAt`)を選ぶ(候補が 1 つなら省略可)。その枠の空きを再検証し、日時更新 + イベント更新。選んだ日時を `approvedStartAt` に記録。元の枠は空きに戻る。選んだ候補が埋まっていれば `slot_unavailable` で、申請は承認待ちのまま(別の候補で承認できる) |
 | reject | 予約は `confirmed` のまま維持 | 同左 |
 
 - 判断メモ(`note`)を残せる。処理済み要求の再判断は不可。
+- 主催者の変更要求一覧(`GET /hosts/{hostId}/change-requests`)は、承認待ちの振替に `candidates`(希望順の各日時と、現在空いているか)を付けて返す。画面では埋まった候補を選べなくし、既定で空いている最上位の希望を選ぶ。
 
 ### 3.5.1 主催者による取り消し(休講)
 - 主催者は、生徒へのメッセージ(必須)を添えて今後の確定予約を取り消せる。キャンセルフィーは発生しない。
@@ -203,7 +207,7 @@ lb_bookings                 予約
 lb_change_requests          変更要求
   id, booking_id, host_id, student_id, kind(cancel|reschedule),
   option(request_approval|reschedule_within_two_weeks|pay_cancellation_fee),
-  message, proposed_start_at, fee_method(card|bank_transfer|in_person), status(pending|approved|rejected), decision_note, created_at, decided_at
+  message, proposed_start_ats(timestamptz[] 最大 3), approved_start_at, fee_method(card|bank_transfer|in_person), status(pending|approved|rejected), decision_note, created_at, decided_at
   unique(booking_id) where status='pending'            -- pending は 1 件
 ```
 
@@ -252,7 +256,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/bookings` | 予約作成 `{hostId, startAt, note?}` → 201 |
 | GET | `/bookings` | 自分の予約一覧(`requiresApprovalToChange` 付き) |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
-| POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAt?, feeMethod?}` → 200 `applied` / 202 `pending_approval` |
+| POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAts?, feeMethod?}` → 200 `applied` / 202 `pending_approval`(旧形式の `proposedStartAt` 1 件も受け付ける) |
 | POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
 
 ### 主催者
@@ -270,7 +274,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | DELETE | `/hosts/{hostId}/availability-windows/{id}` | 削除 |
 | GET | `/hosts/{hostId}/bookings` | 全予約(生徒情報付き) |
 | GET | `/hosts/{hostId}/change-requests?status=pending\|approved\|rejected\|all` | 変更要求一覧(予約・生徒・3 択ラベル付き) |
-| POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?}` |
+| POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?, startAt?}`(振替の承認で希望日時から選んだ振替先) |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-paid` | キャンセルフィー入金確認 |
 | POST | `/hosts/{hostId}/bookings/{id}/cancel` | 休講 `{reason}`(生徒へのメッセージ必須) |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-method` | 未払いキャンセルフィーの支払い方法を変更 `{method}` |
@@ -338,7 +342,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | フロントエンド(生徒・主催者画面) | 実装済み(web/)。Playwright で講師設定→予約→直前申請→承認の一連を確認済み |
 | 複数主催者(公開ページ slug・プラン上限) | 実装済み |
 | キャンセルフィーの支払い方法(カード・振込・手渡し)と講師承認 | 実装済み |
-| テスト | vitest 92 件、Playwright で主要フローを確認 |
+| 振替の第1〜第3希望と、講師による振替先の選択 | 実装済み |
+| テスト | vitest 101 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |

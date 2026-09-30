@@ -60,7 +60,7 @@ describe('キャンセルフィーの支払い方法', () => {
         message: 'x',
         option: 'pay_cancellation_fee',
         feeMethod: 'in_person',
-        proposedStartAt: jst('2026-10-08T10:00:00'),
+        proposedStartAts: [jst('2026-10-08T10:00:00')],
       }),
     ).rejects.toMatchObject({ code: 'validation', details: { field: 'option' } });
   });

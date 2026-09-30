@@ -112,7 +112,7 @@ export function bookingChangedMails(
 export function changeRequestedMails(ctx: TemplateContext, host: Host, student: Student, request: ChangeRequest, booking: Booking): EmailMessage[] {
   const tz = host.timezone;
   const kindJa = request.kind === 'cancel' ? 'キャンセル' : '日時変更';
-  const proposed = request.proposedStartAt ? `\n振替希望: ${fmt(request.proposedStartAt, tz)}` : '';
+  const proposed = request.proposedStartAts.map((c, i) => `\n第${i + 1}希望: ${fmt(c, tz)}`).join('');
   const option =
     LATE_CHANGE_OPTION_LABELS[request.option] + (request.feeMethod ? `(支払い方法: ${FEE_METHOD_LABELS[request.feeMethod]})` : '');
   return [

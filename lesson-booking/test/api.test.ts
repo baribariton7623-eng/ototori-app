@@ -428,3 +428,55 @@ describe('支払い方法 API', () => {
     expect((await call('GET', `/bookings/${b.json.id}`, S4)).json.bankTransferInfo).toBeUndefined();
   });
 });
+
+describe('振替の希望日時 API', () => {
+  const S5 = { 'x-dev-user-email': 'student5@example.com' };
+
+  it('第1〜第2希望で申請 → 講師に候補と空き状況 → 第2希望で承認', async () => {
+    const b = await call('POST', '/bookings', S5, { hostId: w.host.id, startAt: jst('2026-10-02T11:00:00').toISOString() });
+    expect(b.status).toBe(201);
+    const c1 = jst('2026-10-12T15:00:00').toISOString();
+    const c2 = jst('2026-10-13T15:00:00').toISOString();
+    const tooMany = await call('POST', `/bookings/${b.json.id}/change`, S5, {
+      kind: 'reschedule',
+      option: 'reschedule_within_two_weeks',
+      message: 'x',
+      proposedStartAts: [c1, c2, jst('2026-10-14T15:00:00').toISOString(), jst('2026-10-15T15:00:00').toISOString()],
+    });
+    expect(tooMany.status).toBe(400);
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S5, {
+      kind: 'reschedule',
+      option: 'reschedule_within_two_weeks',
+      message: '振替希望です',
+      proposedStartAts: [c1, c2],
+    });
+    expect(req.status).toBe(202);
+    expect(req.json.request.proposedStartAts).toEqual([c1, c2]);
+
+    const list = await call('GET', `/hosts/${w.host.id}/change-requests`, TEACHER);
+    const mine = list.json.find((x: { id: string }) => x.id === req.json.request.id);
+    expect(mine.candidates).toEqual([
+      { startAt: c1, available: true },
+      { startAt: c2, available: true },
+    ]);
+
+    const noChoice = await call('POST', `/hosts/${w.host.id}/change-requests/${req.json.request.id}/decision`, TEACHER, { decision: 'approve' });
+    expect(noChoice.status).toBe(400);
+    const ok = await call('POST', `/hosts/${w.host.id}/change-requests/${req.json.request.id}/decision`, TEACHER, { decision: 'approve', startAt: c2 });
+    expect(ok.status).toBe(200);
+    expect(ok.json.booking.startAt).toBe(c2);
+    expect(ok.json.request.approvedStartAt).toBe(c2);
+  });
+
+  it('旧形式(proposedStartAt 1 件)も受け付ける', async () => {
+    const b = await call('POST', '/bookings', S5, { hostId: w.host.id, startAt: jst('2026-10-02T14:00:00').toISOString() });
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S5, {
+      kind: 'reschedule',
+      option: 'reschedule_within_two_weeks',
+      message: 'x',
+      proposedStartAt: jst('2026-10-12T16:00:00').toISOString(),
+    });
+    expect(req.status).toBe(202);
+    expect(req.json.request.proposedStartAts).toEqual([jst('2026-10-12T16:00:00').toISOString()]);
+  });
+});

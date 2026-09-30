@@ -131,8 +131,10 @@ export interface ChangeRequest {
   kind: ChangeKind;
   option: LateChangeOption;
   message: string;
-  /** 振替希望日時(kind=reschedule のとき必須) */
-  proposedStartAt: string | null;
+  /** 振替の希望日時。第1希望から順に最大 3 件(kind=reschedule のとき 1 件以上必須) */
+  proposedStartAts: string[];
+  /** 承認時に講師が候補から選んだ振替先 */
+  approvedStartAt: string | null;
   /** option=pay_cancellation_fee のとき生徒が選んだ支払い方法 */
   feeMethod: FeeMethod | null;
   status: ChangeRequestStatus;

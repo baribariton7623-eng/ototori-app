@@ -101,7 +101,9 @@ export function MyBookingsScreen({
                     {KIND_JA[pending.kind]}を申請中 — {rules.lateChangeOptions.find((o) => o.value === pending.option)?.label}
                     {pending.feeMethod && `(${rules.feeMethods.find((m) => m.value === pending.feeMethod)?.label})`}
                   </div>
-                  {pending.proposedStartAt && <div>振替希望: {fmtFull(pending.proposedStartAt)}</div>}
+                  {pending.proposedStartAts.map((c, i) => (
+                    <div key={c}>第{i + 1}希望: {fmtFull(c)}</div>
+                  ))}
                   <div className="text-stone-600">「{pending.message}」</div>
                 </div>
               )}
@@ -198,6 +200,10 @@ function History({ requests, rules }: { requests: ChangeRequest[]; rules: Rules 
               {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {rules.lateChangeOptions.find((o) => o.value === r.option)?.label} → <b>{STATUS_JA[r.status]}</b>
             </div>
             <div>「{r.message}」</div>
+            {r.proposedStartAts.length > 0 && (
+              <div>希望: {r.proposedStartAts.map((c, i) => `第${i + 1} ${fmtFull(c)}`).join(' / ')}</div>
+            )}
+            {r.approvedStartAt && <div>振替先に決定: {fmtFull(r.approvedStartAt)}</div>}
             {r.feeMethod && <div>支払い方法: {rules.feeMethods.find((m) => m.value === r.feeMethod)?.label}</div>}
             {r.decisionNote && <div className="text-stone-500">主催者: {r.decisionNote}</div>}
           </li>

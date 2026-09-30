@@ -29,7 +29,7 @@ describe('通知メール', () => {
   it('猶予ありのキャンセル・変更は生徒と講師の双方に通知', async () => {
     const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: FAR });
     w.mail.clear();
-    await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'reschedule', proposedStartAt: jst('2026-10-21T11:00:00') });
+    await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'reschedule', proposedStartAts: [jst('2026-10-21T11:00:00')] });
     expect(w.mail.to(STUDENT)[0]?.subject).toContain('【日時変更完了】');
     expect(w.mail.to(STUDENT)[0]?.text).toMatch(/変更前: 2026\/10\/20\(火\) 10:00〜11:00\n変更後: 2026\/10\/21\(水\) 11:00〜12:00/);
     expect(w.mail.to(TEACHER)[0]?.subject).toContain('【日時変更】');
@@ -49,12 +49,12 @@ describe('通知メール', () => {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: '出張が入りました',
-      proposedStartAt: jst('2026-10-13T14:00:00'),
+      proposedStartAts: [jst('2026-10-13T14:00:00')],
     });
     const host = w.mail.to(TEACHER)[0];
     expect(host?.subject).toBe('【要承認】生徒B から日時変更の申請');
     expect(host?.text).toContain('対応方法: 2週間以内の別日に振替を希望する');
-    expect(host?.text).toContain('振替希望: 2026/10/13(火) 14:00');
+    expect(host?.text).toContain('第1希望: 2026/10/13(火) 14:00');
     expect(host?.text).toContain('出張が入りました');
     expect(host?.text).toContain('https://app.example.com/#/host');
     expect(w.mail.to(STUDENT)[0]?.subject).toContain('【申請受付】');

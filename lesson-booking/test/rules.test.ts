@@ -59,12 +59,12 @@ describe('振替範囲(元の日から2週間以内)', () => {
 describe('直前変更要求の入力検証', () => {
   it('メッセージが空なら拒否', () => {
     expect(() =>
-      validateLateChangeRequest(booking, { kind: 'cancel', option: 'request_approval', message: '  ', proposedStartAt: undefined }),
+      validateLateChangeRequest(booking, { kind: 'cancel', option: 'request_approval', message: '  ', proposedStartAts: [] }),
     ).toThrowError(DomainError);
   });
   it('対応方法が未選択なら拒否', () => {
     try {
-      validateLateChangeRequest(booking, { kind: 'cancel', option: undefined, message: '体調不良のため', proposedStartAt: undefined });
+      validateLateChangeRequest(booking, { kind: 'cancel', option: undefined, message: '体調不良のため', proposedStartAts: [] });
       expect.unreachable();
     } catch (e) {
       expect((e as DomainError).code).toBe('late_change_requires_request');
@@ -73,29 +73,29 @@ describe('直前変更要求の入力検証', () => {
   });
   it('3択それぞれが受理される(キャンセル)', () => {
     for (const option of ['request_approval', 'pay_cancellation_fee'] as const) {
-      const v = validateLateChangeRequest(booking, { kind: 'cancel', option, message: '事情説明', proposedStartAt: undefined });
+      const v = validateLateChangeRequest(booking, { kind: 'cancel', option, message: '事情説明', proposedStartAts: [] });
       expect(v.option).toBe(option);
-      expect(v.proposedStartAt).toBeNull();
+      expect(v.proposedStartAts).toEqual([]);
     }
   });
   it('振替希望は振替先が必須で、元の日から2週間以内', () => {
     expect(() =>
-      validateLateChangeRequest(booking, { kind: 'cancel', option: 'reschedule_within_two_weeks', message: 'x', proposedStartAt: undefined }),
-    ).toThrowError(/振替希望日時/);
+      validateLateChangeRequest(booking, { kind: 'cancel', option: 'reschedule_within_two_weeks', message: 'x', proposedStartAts: [] }),
+    ).toThrowError(/希望日時を選んでください/);
     expect(() =>
       validateLateChangeRequest(booking, {
         kind: 'reschedule',
         option: 'reschedule_within_two_weeks',
         message: 'x',
-        proposedStartAt: jst('2026-11-01T10:00:00'),
+        proposedStartAts: [jst('2026-11-01T10:00:00')],
       }),
     ).toThrowError(/14日以内/);
     const ok = validateLateChangeRequest(booking, {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: 'x',
-      proposedStartAt: jst('2026-10-17T10:00:00'),
+      proposedStartAts: [jst('2026-10-17T10:00:00')],
     });
-    expect(ok.proposedStartAt?.toISOString()).toBe(jst('2026-10-17T10:00:00').toISOString());
+    expect(ok.proposedStartAts.map((d) => d.toISOString())).toEqual([jst('2026-10-17T10:00:00').toISOString()]);
   });
 });

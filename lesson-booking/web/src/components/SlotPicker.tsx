@@ -4,13 +4,16 @@ import { WEEKDAY_JA, dateKey, fmtTime } from '../lib/format';
 
 interface Props {
   slots: Slot[];
-  selected: string | null;
+  /** 選択中の開始時刻。複数選択では配列の順が希望順 */
+  selected: string | null | string[];
   onSelect: (startAt: string) => void;
   emptyText?: string;
 }
 
-/** 空き枠を日付ごとにグループ化して表示する */
+/** 空き枠を日付ごとにグループ化して表示する。複数選択のときは選んだ順の番号(第1〜)をボタンに出す */
 export function SlotPicker({ slots, selected, onSelect, emptyText = 'この期間に空き枠はありません' }: Props) {
+  const ranks = Array.isArray(selected) ? selected : selected ? [selected] : [];
+  const multi = Array.isArray(selected);
   const groups = useMemo(() => {
     const map = new Map<string, Slot[]>();
     for (const s of slots) {
@@ -37,17 +40,24 @@ export function SlotPicker({ slots, selected, onSelect, emptyText = 'この期�
             </div>
             <div className="flex flex-wrap gap-1.5">
               {list.map((s) => {
-                const active = s.startAt === selected;
+                const rank = ranks.indexOf(s.startAt);
+                const active = rank >= 0;
                 return (
                   <button
                     key={s.startAt}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => onSelect(s.startAt)}
-                    className={`rounded-md border px-2.5 py-1 text-sm ${
+                    className={`relative rounded-md border px-2.5 py-1 text-sm ${
                       active ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-stone-300 hover:bg-emerald-50'
                     }`}
                   >
                     {fmtTime(s.startAt)}
+                    {multi && active && (
+                      <span className="absolute -top-2 -right-2 rounded-full bg-amber-500 text-white text-[10px] leading-none px-1.5 py-1">
+                        {rank + 1}
+                      </span>
+                    )}
                   </button>
                 );
               })}

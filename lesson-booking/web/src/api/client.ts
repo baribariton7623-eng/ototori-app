@@ -76,7 +76,7 @@ export const api = {
   booking: (id: string) => request<StudentBooking & { changeRequests: ChangeRequest[] }>('GET', `/bookings/${id}`),
   change: (
     id: string,
-    input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAt?: string; feeMethod?: FeeMethod },
+    input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAts?: string[]; feeMethod?: FeeMethod },
   ) => request<ChangeOutcome>('POST', `/bookings/${id}/change`, input),
 
   // 主催者
@@ -127,10 +127,11 @@ export const api = {
   hostBookings: (hostId: string) => request<HostBooking[]>('GET', `/hosts/${hostId}/bookings`),
   changeRequests: (hostId: string, status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending') =>
     request<HostChangeRequest[]>('GET', `/hosts/${hostId}/change-requests?status=${status}`),
-  decide: (hostId: string, id: string, decision: 'approve' | 'reject', note?: string) =>
+  decide: (hostId: string, id: string, decision: 'approve' | 'reject', note?: string, startAt?: string) =>
     request<{ request: ChangeRequest; booking: HostBooking }>('POST', `/hosts/${hostId}/change-requests/${id}/decision`, {
       decision,
       note: note || undefined,
+      startAt,
     }),
   cancelByHost: (hostId: string, bookingId: string, reason: string) =>
     request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/cancel`, { reason }),

@@ -44,7 +44,7 @@ describe('前日リマインド', () => {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: '都合が悪くなりました',
-      proposedStartAt: jst('2026-10-05T10:00:00'),
+      proposedStartAts: [jst('2026-10-05T10:00:00')],
     });
     if (r.type !== 'pending_approval') throw new Error('unexpected');
     const { booking } = await w.bookings.decideRequest(r.request.id, w.host.id, 'approve');

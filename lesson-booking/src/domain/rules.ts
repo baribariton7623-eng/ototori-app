@@ -11,6 +11,9 @@ export const LATE_CHANGE_THRESHOLD_DAYS = 14;
 /** 振替先は元のレッスン日からこの日数以内 */
 export const RESCHEDULE_RANGE_DAYS = 14;
 
+/** 振替申請で出せる希望日時の数(第1〜第3希望) */
+export const MAX_RESCHEDULE_CANDIDATES = 3;
+
 export const LATE_CHANGE_OPTIONS: readonly LateChangeOption[] = [
   'request_approval',
   'reschedule_within_two_weeks',
@@ -69,19 +72,21 @@ export interface LateChangeInput {
   kind: ChangeKind;
   option: LateChangeOption | undefined;
   message: string | undefined;
-  proposedStartAt: Date | undefined;
+  /** 第1希望から順 */
+  proposedStartAts: Date[];
 }
 
 /**
  * 直前変更要求の入力を検証する。
  * - メッセージ必須
  * - 対応方法(3択)必須
- * - 振替(kind=reschedule / option=reschedule_within_two_weeks)は振替先日時が必須で、元の日から2週間以内
+ * - 振替(kind=reschedule / option=reschedule_within_two_weeks)は希望日時が 1〜3 件必須(重複不可)で、
+ *   いずれも元の日から2週間以内・元の日時とは別
  */
 export function validateLateChangeRequest(booking: Booking, input: LateChangeInput): {
   option: LateChangeOption;
   message: string;
-  proposedStartAt: Date | null;
+  proposedStartAts: Date[];
 } {
   const message = input.message?.trim() ?? '';
   if (message.length === 0) {
@@ -105,17 +110,35 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
 
   const needsProposed = input.kind === 'reschedule' || input.option === 'reschedule_within_two_weeks';
   if (needsProposed) {
-    if (!input.proposedStartAt) {
-      throw new DomainError('validation', '振替希望日時を指定してください', { field: 'proposedStartAt' });
+    const candidates = validateCandidates(booking, input.proposedStartAts);
+    for (const c of candidates) {
+      if (!isWithinRescheduleRange(new Date(booking.startAt), c)) {
+        throw new DomainError('validation', `振替先は元のレッスン日から${RESCHEDULE_RANGE_DAYS}日以内で指定してください`, {
+          field: 'proposedStartAts',
+          originalStartAt: booking.startAt,
+          invalid: c.toISOString(),
+        });
+      }
     }
-    if (!isWithinRescheduleRange(new Date(booking.startAt), input.proposedStartAt)) {
-      throw new DomainError(
-        'validation',
-        `振替先は元のレッスン日から${RESCHEDULE_RANGE_DAYS}日以内で指定してください`,
-        { field: 'proposedStartAt', originalStartAt: booking.startAt },
-      );
-    }
-    return { option: input.option, message, proposedStartAt: input.proposedStartAt };
+    return { option: input.option, message, proposedStartAts: candidates };
   }
-  return { option: input.option, message, proposedStartAt: null };
+  return { option: input.option, message, proposedStartAts: [] };
+}
+
+/** 希望日時の件数・重複・元の日時との一致を検証し、順序を保って返す */
+export function validateCandidates(booking: Booking, candidates: Date[], max = MAX_RESCHEDULE_CANDIDATES): Date[] {
+  if (candidates.length === 0) {
+    throw new DomainError('validation', '振替の希望日時を選んでください', { field: 'proposedStartAts' });
+  }
+  if (candidates.length > max) {
+    throw new DomainError('validation', `振替の希望日時は${max}つまで選べます`, { field: 'proposedStartAts', max });
+  }
+  const isos = candidates.map((c) => c.toISOString());
+  if (new Set(isos).size !== isos.length) {
+    throw new DomainError('validation', '同じ日時が重複しています', { field: 'proposedStartAts' });
+  }
+  if (isos.includes(new Date(booking.startAt).toISOString())) {
+    throw new DomainError('validation', '今の予約と同じ日時は選べません', { field: 'proposedStartAts' });
+  }
+  return candidates;
 }
