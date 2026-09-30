@@ -113,6 +113,13 @@ curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<api-host>/internal/cron/r
 
 ローカルは `BILLING=fake` のまま、設定画面の「プロプランにアップグレード」で即時にプロになる。プランの上限は `src/domain/plans.ts`。
 
+キャンセルフィーのカード決済(プロ限定、Stripe Connect):
+1. Stripe ダッシュボードで Connect を有効化(アカウントタイプは Standard)
+2. 「連結アカウント」のイベントを受ける Webhook を `https://<api-host>/billing/connect-webhook` に別途登録し、`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated` を購読 → `STRIPE_CONNECT_WEBHOOK_SECRET`
+3. 講師は設定画面の「キャンセルフィー」で金額を入れ、「Stripe と連携する」から本人確認・口座登録を行う。売上は講師の口座に直接入り、運営者は預からない
+
+ローカル(`BILLING=fake`)では「Stripe と連携する」「カードで支払う」が即時に完了する。
+
 ### 5. 運営者情報と法務ページ
 `web/.env` の `VITE_OPERATOR_NAME` などを設定してから `cd web && npm run build`。
 利用規約 `/terms`、プライバシーポリシー `/privacy`、特定商取引法に基づく表記 `/tokushoho` に反映される。未設定の項目は赤字で「未設定」と表示される。文面はひな形のため、公開前に専門家の確認を推奨。
@@ -144,6 +151,5 @@ test/                 vitest
 
 ## 未実装・今後
 
-- 組織(教室)プラン、キャンセルフィーの決済(Stripe Connect)(docs/business.md §7)
-- 決済 — キャンセルフィーは「支払う意思」と「入金確認」のフラグのみ
+- 組織(教室)プラン(docs/business.md §7)
 - 実 Supabase / 実 Google / 実 Stripe / 実 Resend での結合確認

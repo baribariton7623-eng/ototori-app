@@ -8,11 +8,13 @@ export interface PlanLimits {
   maxBookingsPerMonth: number | null;
   /** Google カレンダーへの書き込み(イベント作成)可否 */
   calendarWrite: boolean;
+  /** キャンセルフィーのオンライン決済(講師の Stripe アカウントで受け取る) */
+  onlineFeeCollection: boolean;
 }
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
-  free: { maxCalendars: 1, maxBookingsPerMonth: 10, calendarWrite: false },
-  pro: { maxCalendars: null, maxBookingsPerMonth: null, calendarWrite: true },
+  free: { maxCalendars: 1, maxBookingsPerMonth: 10, calendarWrite: false, onlineFeeCollection: false },
+  pro: { maxCalendars: null, maxBookingsPerMonth: null, calendarWrite: true, onlineFeeCollection: true },
 };
 
 export const PLAN_LABELS: Record<Plan, string> = {
@@ -42,4 +44,14 @@ export function randomSlug(length = 10): string {
   let out = '';
   for (let i = 0; i < length; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
+}
+
+/** Stripe の JPY 最低決済額 */
+export const MIN_FEE_JPY = 50;
+
+/** 生徒がキャンセルフィーをオンラインで支払えるか */
+export function canCollectFeeOnline(
+  host: Pick<Host, 'plan' | 'subscriptionStatus' | 'stripeConnectAccountId' | 'connectChargesEnabled'>,
+): boolean {
+  return limitsFor(host).onlineFeeCollection && host.stripeConnectAccountId !== null && host.connectChargesEnabled;
 }

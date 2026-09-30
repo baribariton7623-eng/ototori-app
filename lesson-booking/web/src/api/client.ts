@@ -3,6 +3,7 @@ import type {
   ApiErrorBody,
   AvailabilityWindow,
   BillingInfo,
+  ConnectStatus,
   ChangeKind,
   ChangeOutcome,
   ChangeRequest,
@@ -76,8 +77,17 @@ export const api = {
   // 主催者
   registerHost: (input: { displayName: string; slug?: string; bio?: string; timezone?: string; lessonMinutes?: number; minLeadMinutes?: number }) =>
     request<Host>('POST', '/hosts', input),
-  updateHost: (hostId: string, patch: Partial<Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes'>>) =>
+  updateHost: (
+    hostId: string,
+    patch: Partial<Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes' | 'cancellationFeeAmount'>>,
+  ) =>
     request<Host>('PATCH', `/hosts/${hostId}`, patch),
+  connectStatus: (hostId: string) => request<ConnectStatus>('GET', `/hosts/${hostId}/connect`),
+  connectOnboarding: (hostId: string, refreshUrl: string, returnUrl: string) =>
+    request<{ url: string }>('POST', `/hosts/${hostId}/connect/onboarding`, { refreshUrl, returnUrl }),
+  connectDisconnect: (hostId: string) => request<void>('DELETE', `/hosts/${hostId}/connect`),
+  feeCheckout: (bookingId: string, successUrl: string, cancelUrl: string) =>
+    request<{ url: string }>('POST', `/bookings/${bookingId}/fee-checkout`, { successUrl, cancelUrl }),
   billing: (hostId: string) => request<BillingInfo>('GET', `/hosts/${hostId}/billing`),
   checkout: (hostId: string, successUrl: string, cancelUrl: string) =>
     request<{ url: string }>('POST', `/hosts/${hostId}/billing/checkout`, { successUrl, cancelUrl }),

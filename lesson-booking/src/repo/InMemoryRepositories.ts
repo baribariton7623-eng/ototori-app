@@ -71,6 +71,9 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     async findBySlug(slug) {
       return hosts.all().find((h) => h.slug === slug) ?? null;
     },
+    async findByConnectAccountId(accountId) {
+      return hosts.all().find((h) => h.stripeConnectAccountId === accountId) ?? null;
+    },
     async findByStripeCustomerId(customerId) {
       return hosts.all().find((h) => h.stripeCustomerId === customerId) ?? null;
     },

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { AvailabilityWindow, BillingInfo, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
+import type { AvailabilityWindow, BillingInfo, ConnectStatus, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../components/ui';
-import { WEEKDAY_JA, fmtFull, fmtRange } from '../lib/format';
+import { WEEKDAY_JA, fmtFull, fmtRange, yen } from '../lib/format';
 
 type Tab = 'requests' | 'bookings' | 'settings';
 
@@ -235,6 +235,9 @@ function BookingsTab({ host }: { host: Host }) {
               </div>
               <div className="flex flex-col items-end gap-1">
                 {b.status === 'cancelled' ? <Badge tone="red">キャンセル</Badge> : <Badge>終了</Badge>}
+                {b.cancellationFeeStatus === 'pending' && b.cancellationFeeAmount != null && (
+                  <span className="text-xs text-amber-800">フィー {yen(b.cancellationFeeAmount)} 未払い</span>
+                )}
                 {b.cancellationFeeStatus === 'pending' && (
                   <button
                     type="button"
@@ -271,6 +274,9 @@ function SettingsTab({
   const [calendars, setCalendars] = useState<HostCalendar[] | null>(null);
   const [google, setGoogle] = useState<{ connected: boolean } | null>(null);
   const [billing, setBilling] = useState<BillingInfo | null>(null);
+  const [connect, setConnect] = useState<ConnectStatus | null>(null);
+  const [feeInput, setFeeInput] = useState<string>(host.cancellationFeeAmount != null ? String(host.cancellationFeeAmount) : '');
+  const [feeSaved, setFeeSaved] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [copied, setCopied] = useState(false);
 
@@ -289,6 +295,7 @@ function SettingsTab({
     api.calendars(host.id).then(setCalendars).catch(setError);
     api.googleStatus(host.id).then(setGoogle).catch(() => setGoogle({ connected: false }));
     api.billing(host.id).then(setBilling).catch(setError);
+    api.connectStatus(host.id).then(setConnect).catch(setError);
   }, [host.id]);
   useEffect(() => {
     load();
@@ -388,6 +395,72 @@ function SettingsTab({
             )}
           </>
         )}
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">キャンセルフィー</h2>
+        <p className="text-xs text-stone-600">
+          生徒が直前のキャンセル申請で「キャンセルフィーを支払う」を選び、あなたが承認したときの金額です。承認した時点の金額が請求されます。空欄にすると金額は表示せず、支払いは個別にやり取りします。
+        </p>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <label className="label" htmlFor="fee-amount">金額(円)</label>
+            <input id="fee-amount" className="input" type="number" min={50} step={100} value={feeInput} onChange={(e) => setFeeInput(e.target.value)} placeholder="例: 3000" />
+          </div>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() =>
+              api
+                .updateHost(host.id, { cancellationFeeAmount: feeInput.trim() === '' ? null : Number(feeInput) })
+                .then((h) => {
+                  onHostUpdated(h);
+                  setFeeSaved(true);
+                  setTimeout(() => setFeeSaved(false), 1500);
+                  load();
+                })
+                .catch(setError)
+            }
+          >
+            {feeSaved ? '保存しました' : '保存'}
+          </button>
+        </div>
+        <div className="border-t border-stone-100 pt-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">オンライン決済(Stripe)</span>
+            {connect?.active ? <Badge tone="green">受付中</Badge> : connect?.accountId ? <Badge tone="amber">手続き未完了</Badge> : <Badge>未連携</Badge>}
+          </div>
+          {connect === null ? (
+            <Spinner />
+          ) : !connect.available ? (
+            <Notice>プロプランでは、あなたの Stripe アカウントを連携して、生徒にカードでキャンセルフィーを払ってもらえます。売上はあなたの口座に直接入金されます。</Notice>
+          ) : connect.active ? (
+            <div className="flex items-center justify-between gap-2 text-xs text-stone-600">
+              <span>承認後、生徒のマイ予約に「カードで支払う」ボタンが表示されます。売上はあなたの Stripe アカウントに入り、Stripe の決済手数料がかかります。</span>
+              <button type="button" className="text-red-700 underline whitespace-nowrap" onClick={() => run(api.connectDisconnect(host.id))}>連携を外す</button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-stone-600">
+                あなた名義の Stripe アカウントを作成(または既存のアカウントでログイン)し、本人確認と入金口座を登録します。運営者は売上を預からず、手数料も取りません。
+              </p>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() =>
+                  api
+                    .connectOnboarding(host.id, hereUrl, hereUrl)
+                    .then(({ url }) => {
+                      window.location.href = url;
+                    })
+                    .catch(setError)
+                }
+              >
+                {connect.accountId ? 'Stripe の手続きを続ける' : 'Stripe と連携する'}
+              </button>
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="card space-y-3">

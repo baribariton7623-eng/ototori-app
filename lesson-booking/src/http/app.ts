@@ -5,7 +5,16 @@ import { z } from 'zod';
 import type { CalendarClient } from '../calendar/CalendarClient.js';
 import type { GoogleCalendarClient } from '../calendar/GoogleCalendarClient.js';
 import { DomainError } from '../domain/errors.js';
-import { PLAN_LABELS, PLAN_LIMITS, SLUG_PATTERN, effectivePlan, limitsFor, randomSlug } from '../domain/plans.js';
+import {
+  MIN_FEE_JPY,
+  PLAN_LABELS,
+  PLAN_LIMITS,
+  SLUG_PATTERN,
+  canCollectFeeOnline,
+  effectivePlan,
+  limitsFor,
+  randomSlug,
+} from '../domain/plans.js';
 import { monthRange } from '../domain/time.js';
 import type { Host } from '../domain/types.js';
 import {
@@ -23,6 +32,7 @@ import type { AccountService } from '../services/AccountService.js';
 import type { AvailabilityService } from '../services/AvailabilityService.js';
 import type { BillingService } from '../services/BillingService.js';
 import type { BookingService } from '../services/BookingService.js';
+import type { FeeService } from '../services/FeeService.js';
 import type { ReminderService } from '../services/ReminderService.js';
 import { timingSafeEqual } from 'node:crypto';
 import { authMiddleware, requireHost, requirePrincipal, requireStudent, type AuthMode } from './auth.js';
@@ -35,6 +45,7 @@ export interface AppDeps {
   billing: BillingService;
   accounts: AccountService;
   reminders: ReminderService;
+  fees: FeeService;
   /** 定期実行エンドポイントの共有シークレット。空なら無効 */
   cronSecret: string;
   /** FakeBillingProvider のとき true(開発用の即時有効化エンドポイントを出す) */
@@ -63,6 +74,7 @@ const createHostSchema = z.object({
   displayName: z.string().trim().min(1).max(100),
   slug: slugSchema.optional(),
   bio: z.string().trim().max(2000).optional(),
+  cancellationFeeAmount: z.number().int().min(MIN_FEE_JPY, `キャンセルフィーは${MIN_FEE_JPY}円以上にしてください`).max(1_000_000).nullable().optional(),
   timezone: z.string().trim().min(1).optional(),
   lessonMinutes: z.number().int().min(5).max(24 * 60).optional(),
   minLeadMinutes: z.number().int().min(0).max(30 * 24 * 60).optional(),
@@ -73,6 +85,7 @@ const billingUrlsSchema = z.object({
   cancelUrl: z.url(),
 });
 const returnUrlSchema = z.object({ returnUrl: z.url() });
+const successCancelSchema = z.object({ successUrl: z.url(), cancelUrl: z.url() });
 const hostCancelSchema = z.object({ reason: z.string().trim().min(1, '生徒へのメッセージを入力してください').max(2000) });
 const deleteAccountSchema = z.object({ confirm: z.string().trim().min(1) });
 
@@ -126,6 +139,12 @@ export function createApp(deps: AppDeps): express.Express {
   app.post('/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), wrap(async (req, res) => {
     const sig = header(req, 'stripe-signature');
     const event = await deps.billing.handleWebhook(req.body as Buffer, sig);
+    res.json({ received: true, type: event.type });
+  }));
+
+  // 講師の Stripe アカウント(Connect)のイベント。キャンセルフィーの決済完了など
+  app.post('/billing/connect-webhook', express.raw({ type: '*/*', limit: '1mb' }), wrap(async (req, res) => {
+    const event = await deps.fees.handleWebhook(req.body as Buffer, header(req, 'stripe-signature'));
     res.json({ received: true, type: event.type });
   }));
 
@@ -222,6 +241,9 @@ function hostRoutes(deps: AppDeps): Router {
       subscriptionStatus: 'none',
       stripeCustomerId: null,
       stripeSubscriptionId: null,
+      cancellationFeeAmount: body.cancellationFeeAmount ?? null,
+      stripeConnectAccountId: null,
+      connectChargesEnabled: false,
       timezone: body.timezone ?? deps.defaultTimezone,
       lessonMinutes: body.lessonMinutes ?? 60,
       minLeadMinutes: body.minLeadMinutes ?? 60,
@@ -372,6 +394,45 @@ function hostRoutes(deps: AppDeps): Router {
     res.json({ url: await deps.billing.portalUrl(host, body.returnUrl) });
   }));
 
+  // ---- キャンセルフィーのオンライン決済(講師の Stripe アカウント) ----
+
+  r.get('/hosts/:hostId/connect', wrap(async (req, res) => {
+    let host = requireHost(req, param(req, 'hostId'));
+    host = await deps.fees.refreshStatus(host);
+    res.json({
+      available: limitsFor(host).onlineFeeCollection,
+      accountId: host.stripeConnectAccountId,
+      chargesEnabled: host.connectChargesEnabled,
+      active: canCollectFeeOnline(host),
+      cancellationFeeAmount: host.cancellationFeeAmount,
+    });
+  }));
+
+  r.post('/hosts/:hostId/connect/onboarding', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const body = z.object({ refreshUrl: z.url(), returnUrl: z.url() }).parse(req.body);
+    res.json({ url: await deps.fees.startOnboarding(host, body) });
+  }));
+
+  r.delete('/hosts/:hostId/connect', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    await deps.fees.disconnect(host);
+    res.status(204).end();
+  }));
+
+  if (deps.fakeBilling) {
+    r.get('/billing/fake/connect-onboard', wrap(async (req, res) => {
+      const q = z.object({ hostId: z.string(), accountId: z.string(), redirect: z.string() }).parse(req.query);
+      await deps.fees.completeOnboardingForDev(q.hostId, q.accountId);
+      res.redirect(q.redirect);
+    }));
+    r.get('/billing/fake/fee-paid', wrap(async (req, res) => {
+      const q = z.object({ bookingId: z.string(), redirect: z.string() }).parse(req.query);
+      await deps.fees.markPaidOnline(q.bookingId, null);
+      res.redirect(q.redirect);
+    }));
+  }
+
   if (deps.fakeBilling) {
     // ローカル用: Checkout の代わりに即時有効化 / 解約して戻る
     r.get('/billing/fake/activate', wrap(async (req, res) => {
@@ -399,7 +460,16 @@ async function uniqueRandomSlug(repos: Repositories): Promise<string> {
 
 /** 公開してよい主催者情報 */
 function publicHost(h: Host) {
-  return { id: h.id, slug: h.slug, displayName: h.displayName, bio: h.bio, timezone: h.timezone, lessonMinutes: h.lessonMinutes };
+  return {
+    id: h.id,
+    slug: h.slug,
+    displayName: h.displayName,
+    bio: h.bio,
+    timezone: h.timezone,
+    lessonMinutes: h.lessonMinutes,
+    cancellationFeeAmount: h.cancellationFeeAmount,
+    onlineFeePayment: canCollectFeeOnline(h),
+  };
 }
 
 // ---------- 公開(ログイン任意) ----------
@@ -445,14 +515,24 @@ function studentRoutes(deps: AppDeps): Router {
     const student = await requireStudent(req, repos);
     const list = await repos.bookings.listByStudent(student.id);
     const now = deps.clock.now();
-    res.json(list.map((b) => decorate(b, now)));
+    const hosts = new Map<string, Host | null>();
+    for (const b of list) if (!hosts.has(b.hostId)) hosts.set(b.hostId, await repos.hosts.findById(b.hostId));
+    res.json(list.map((b) => ({ ...decorate(b, now), feePayableOnline: feePayable(b, hosts.get(b.hostId) ?? null) })));
   }));
 
   r.get('/bookings/:id', wrap(async (req, res) => {
     const student = await requireStudent(req, repos);
     const booking = await deps.bookings.getBookingForStudent(param(req, 'id'), student);
     const requests = await repos.changeRequests.listByBooking(booking.id);
-    res.json({ ...decorate(booking, deps.clock.now()), changeRequests: requests });
+    const host = await repos.hosts.findById(booking.hostId);
+    res.json({ ...decorate(booking, deps.clock.now()), feePayableOnline: feePayable(booking, host), changeRequests: requests });
+  }));
+
+  // 未払いのキャンセルフィーをオンラインで支払う(講師の Stripe アカウントへ直接)
+  r.post('/bookings/:id/fee-checkout', wrap(async (req, res) => {
+    const student = await requireStudent(req, repos);
+    const body = successCancelSchema.parse(req.body);
+    res.json({ url: await deps.fees.checkoutUrl(param(req, 'id'), student, body) });
   }));
 
   /**
@@ -514,6 +594,11 @@ function googleRoutes(deps: AppDeps): Router {
 }
 
 // ---------- 共通 ----------
+
+/** この予約の未払いキャンセルフィーをオンラインで払えるか */
+function feePayable(b: { cancellationFeeStatus: string; cancellationFeeAmount: number | null }, host: Host | null): boolean {
+  return b.cancellationFeeStatus === 'pending' && b.cancellationFeeAmount !== null && host !== null && canCollectFeeOnline(host);
+}
 
 /** 予約に「今の時点で直前変更扱いか」を付ける(クライアントの文言分岐用) */
 function decorate<T extends { startAt: string; status: string }>(booking: T, now: Date) {

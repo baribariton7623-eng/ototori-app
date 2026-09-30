@@ -31,6 +31,8 @@ const schema = z.object({
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
   STRIPE_PRICE_ID_PRO: z.string().default(''),
+  /** Connect(連結アカウント)イベント用 Webhook の署名シークレット。キャンセルフィー決済に使う */
+  STRIPE_CONNECT_WEBHOOK_SECRET: z.string().default(''),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -52,7 +54,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (!cfg.MAIL_FROM) missing.push('MAIL_FROM');
   }
   if (cfg.BILLING === 'stripe') {
-    for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_ID_PRO'] as const) if (!cfg[k]) missing.push(k);
+    for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_ID_PRO', 'STRIPE_CONNECT_WEBHOOK_SECRET'] as const) {
+      if (!cfg[k]) missing.push(k);
+    }
   }
   if (missing.length > 0) {
     throw new Error(`環境変数が不足しています: ${missing.join(', ')}`);

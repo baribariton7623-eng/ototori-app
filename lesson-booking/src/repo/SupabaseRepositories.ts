@@ -42,6 +42,9 @@ const hostFromRow = (r: Row): Host => ({
   subscriptionStatus: (r.subscription_status as Host['subscriptionStatus'] | null) ?? 'none',
   stripeCustomerId: (r.stripe_customer_id as string | null) ?? null,
   stripeSubscriptionId: (r.stripe_subscription_id as string | null) ?? null,
+  cancellationFeeAmount: (r.cancellation_fee_amount as number | null) ?? null,
+  stripeConnectAccountId: (r.stripe_connect_account_id as string | null) ?? null,
+  connectChargesEnabled: (r.connect_charges_enabled as boolean | null) ?? false,
   timezone: r.timezone as string,
   lessonMinutes: r.lesson_minutes as number,
   minLeadMinutes: r.min_lead_minutes as number,
@@ -56,6 +59,9 @@ const hostToRow = (h: Partial<Host>): Row => strip({
   subscription_status: h.subscriptionStatus,
   stripe_customer_id: h.stripeCustomerId,
   stripe_subscription_id: h.stripeSubscriptionId,
+  cancellation_fee_amount: h.cancellationFeeAmount,
+  stripe_connect_account_id: h.stripeConnectAccountId,
+  connect_charges_enabled: h.connectChargesEnabled,
   timezone: h.timezone,
   lesson_minutes: h.lessonMinutes,
   min_lead_minutes: h.minLeadMinutes,
@@ -95,6 +101,7 @@ const bookingFromRow = (r: Row): Booking => ({
   note: (r.note as string | null) ?? null,
   cancellationFeeStatus: r.cancellation_fee_status as Booking['cancellationFeeStatus'],
   reminderSentAt: (r.reminder_sent_at as string | null) ?? null,
+  cancellationFeeAmount: (r.cancellation_fee_amount as number | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
 });
@@ -108,6 +115,7 @@ const bookingToRow = (b: Partial<Booking>): Row => strip({
   note: b.note,
   cancellation_fee_status: b.cancellationFeeStatus,
   reminder_sent_at: b.reminderSentAt,
+  cancellation_fee_amount: b.cancellationFeeAmount,
   updated_at: b.updatedAt,
 });
 
@@ -163,6 +171,10 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       },
       async findBySlug(slug) {
         const r = maybe(await sb.from('lb_hosts').select().eq('slug', slug).maybeSingle<Row>(), '主催者');
+        return r ? hostFromRow(r) : null;
+      },
+      async findByConnectAccountId(accountId) {
+        const r = maybe(await sb.from('lb_hosts').select().eq('stripe_connect_account_id', accountId).maybeSingle<Row>(), '主催者');
         return r ? hostFromRow(r) : null;
       },
       async findByStripeCustomerId(customerId) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { ChangeKind, ChangeOutcome, LateChangeOption, Rules, Slot, StudentBooking } from '../api/types';
-import { addDays, fmtRange } from '../lib/format';
+import type { ChangeKind, ChangeOutcome, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
+import { addDays, fmtRange, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
 
@@ -25,6 +25,11 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [host, setHost] = useState<PublicHost | null>(null);
+
+  useEffect(() => {
+    api.hostPublic(booking.hostId).then(setHost).catch(() => setHost(null));
+  }, [booking.hostId]);
 
   // 振替を選ぶと自動で kind=reschedule に
   useEffect(() => {
@@ -112,7 +117,13 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
                 {rules.lateChangeOptions.map((o) => (
                   <label key={o.value} className={`flex items-start gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm ${option === o.value ? 'border-emerald-700 bg-emerald-50' : 'border-stone-300'}`}>
                     <input type="radio" name="option" className="mt-0.5" checked={option === o.value} onChange={() => setOption(o.value)} />
-                    <span>{o.label}</span>
+                    <span>
+                      {o.label}
+                      {o.value === 'pay_cancellation_fee' && host?.cancellationFeeAmount != null && (
+                        <span className="ml-1 font-medium">({yen(host.cancellationFeeAmount)}
+                          {host.onlineFeePayment ? '・承認後にカードで支払い' : ''})</span>
+                      )}
+                    </span>
                   </label>
                 ))}
               </div>

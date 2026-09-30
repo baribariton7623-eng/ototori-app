@@ -139,6 +139,7 @@ paths:
                 displayName: { type: string }
                 slug: { type: string, pattern: '^[a-z0-9-]{3,32}$' }
                 bio: { type: string }
+                cancellationFeeAmount: { type: [integer, 'null'], minimum: 50 }
                 timezone: { type: string }
                 lessonMinutes: { type: integer }
                 minLeadMinutes: { type: integer }
@@ -536,6 +537,73 @@ paths:
                   sent: { type: integer }
                   failed: { type: integer }
         '403': { $ref: '#/components/responses/Error' }
+  /billing/connect-webhook:
+    post:
+      tags: [public]
+      security: []
+      summary: Stripe Connect Webhook(キャンセルフィー決済完了・連結アカウント状態)
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Error' }
+  /bookings/{id}/fee-checkout:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      tags: [student]
+      summary: 未払いキャンセルフィーの決済ページ URL(講師の Stripe アカウントで直接決済)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [successUrl, cancelUrl]
+              properties:
+                successUrl: { type: string, format: uri }
+                cancelUrl: { type: string, format: uri }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /hosts/{hostId}/connect:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      summary: Stripe 連携状況
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean, description: プランで利用可能か }
+                  accountId: { type: [string, 'null'] }
+                  chargesEnabled: { type: boolean }
+                  active: { type: boolean, description: 生徒がオンラインで支払える状態か }
+                  cancellationFeeAmount: { type: [integer, 'null'] }
+    delete:
+      tags: [host]
+      summary: Stripe 連携を外す
+      responses:
+        '204': { description: No Content }
+  /hosts/{hostId}/connect/onboarding:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    post:
+      tags: [host]
+      summary: Stripe アカウント作成・オンボーディング URL(プロのみ)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshUrl, returnUrl]
+              properties:
+                refreshUrl: { type: string, format: uri }
+                returnUrl: { type: string, format: uri }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+        '402': { $ref: '#/components/responses/Error' }
   /billing/webhook:
     post:
       tags: [public]
@@ -582,6 +650,8 @@ components:
         bio: { type: string }
         timezone: { type: string }
         lessonMinutes: { type: integer }
+        cancellationFeeAmount: { type: [integer, 'null'] }
+        onlineFeePayment: { type: boolean }
     Host:
       type: object
       properties:
@@ -592,6 +662,9 @@ components:
         bio: { type: string }
         plan: { type: string, enum: [free, pro] }
         subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
+        cancellationFeeAmount: { type: [integer, 'null'] }
+        stripeConnectAccountId: { type: [string, 'null'] }
+        connectChargesEnabled: { type: boolean }
         timezone: { type: string }
         lessonMinutes: { type: integer }
         minLeadMinutes: { type: integer }
@@ -635,6 +708,7 @@ components:
         calendarEventId: { type: [string, 'null'] }
         note: { type: [string, 'null'] }
         cancellationFeeStatus: { type: string, enum: [none, pending, paid] }
+        cancellationFeeAmount: { type: [integer, 'null'] }
         reminderSentAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -646,6 +720,9 @@ components:
             requiresApprovalToChange:
               type: boolean
               description: 今キャンセル・変更すると主催者承認が必要か(開始まで 14 日未満)
+            feePayableOnline:
+              type: boolean
+              description: 未払いのキャンセルフィーをオンラインで払えるか
     ChangeRequest:
       type: object
       properties:

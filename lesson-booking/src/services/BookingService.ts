@@ -71,6 +71,7 @@ export class BookingService {
       calendarEventId: null,
       note: input.note?.trim() || null,
       cancellationFeeStatus: 'none',
+      cancellationFeeAmount: null,
       reminderSentAt: null,
     });
 
@@ -205,6 +206,10 @@ export class BookingService {
     if (request.kind === 'cancel') {
       const fee = request.option === 'pay_cancellation_fee' ? 'pending' : 'none';
       updated = await this.applyCancel(host, booking, fee);
+      if (fee === 'pending') {
+        // 承認時点の金額を記録(後で講師が金額を変えても、この請求は変わらない)
+        updated = await this.repos.bookings.update(updated.id, { cancellationFeeAmount: host.cancellationFeeAmount });
+      }
     } else {
       if (!request.proposedStartAt) throw new DomainError('invalid_state', '振替先日時がありません');
       const proposed = new Date(request.proposedStartAt);

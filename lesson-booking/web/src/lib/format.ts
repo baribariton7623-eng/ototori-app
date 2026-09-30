@@ -40,3 +40,7 @@ export function daysUntil(iso: string, now = new Date()): number {
 export function addDays(d: Date, n: number): Date {
   return new Date(d.getTime() + n * 86_400_000);
 }
+
+export function yen(amount: number): string {
+  return `${amount.toLocaleString('ja-JP')}円`;
+}

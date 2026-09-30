@@ -76,7 +76,7 @@
 | --- | --- | --- |
 | `request_approval` | 事情を説明して承認を求める | そのままキャンセル/変更の承認を求める |
 | `reschedule_within_two_weeks` | 2週間以内の別日に振替を希望する | 元のレッスン日から **前後 14 日以内** の空き枠を `proposedStartAt` で指定する(必須) |
-| `pay_cancellation_fee` | キャンセルフィーを支払う | 承認時に予約の `cancellationFeeStatus` を `pending` にする。決済は本サービスの範囲外(主催者が入金確認で `paid` にする) |
+| `pay_cancellation_fee` | キャンセルフィーを支払う | 承認時に予約の `cancellationFeeStatus` を `pending` にし、主催者設定の金額を `cancellationFeeAmount` に記録する。支払いは §3.8 のオンライン決済、または主催者の入金確認で `paid` にする |
 
 制約:
 - 1 予約につき `pending` の変更要求は 1 件まで(`change_request_pending`)。
@@ -109,6 +109,7 @@
 | 申請の承認・却下 | 申請結果(講師メッセージ、フィー案内) | ー(本人の操作) |
 | 休講・主催者の退会 | 休講のお知らせ(講師メッセージ) | ー |
 | レッスンの 24 時間前(定期実行) | 明日のレッスン | ー |
+| キャンセルフィーのオンライン決済完了 | お支払い完了 | キャンセルフィー入金 |
 
 - メール送信の失敗は業務処理を失敗させない(ログに記録)。1 通の失敗で他の宛先への送信は止めない。
 - 主催者のメールアドレスは生徒宛のメールに載せない。
@@ -126,6 +127,13 @@
 - 最後にログイン基盤(Supabase Auth)のユーザーを削除する。
 - Stripe の請求記録は法令上の保存のため Stripe 側に残る。
 
+### 3.8 キャンセルフィーのオンライン決済(Stripe Connect)
+- 主催者は `cancellationFeeAmount`(50 円以上、null 可)を設定する。承認時点の金額が予約に記録され、後の設定変更の影響を受けない。
+- プロプランの主催者は、自分名義の Stripe アカウント(Connect Standard)を連携できる。`POST /hosts/{id}/connect/onboarding` でアカウント作成と本人確認・口座登録の URL を返す。
+- 生徒は、`cancellationFeeStatus = pending`・金額あり・主催者が決済可能(`canCollectFeeOnline`)のとき、`POST /bookings/{id}/fee-checkout` で決済ページ URL を得る。決済は**主催者のアカウント上で直接**行い(Direct charge)、運営者は代金を受領・保管せず手数料も取らない。
+- 決済完了は Connect 用 Webhook(`POST /billing/connect-webhook`、`checkout.session.completed` の `metadata.kind = cancellation_fee`)で `paid` にする。再送に対して冪等で、予約の主催者と異なる Stripe アカウントからのイベントは拒否する。`account.updated` で決済可否を更新する。
+- 支払い完了時に主催者と生徒へメール。手動の「入金確認」も引き続き使える。
+
 ### 3.7 複数主催者とプラン(SaaS)
 - 主催者一覧は公開しない。各主催者が `slug` 付きの公開予約ページ URL を生徒に共有する。slug は `^[a-z0-9-]{3,32}$`、全体で一意。未指定なら 10 文字のランダム値。
 - 生徒はログインなしで公開ページの空き枠を閲覧でき、予約時にログインを求める。
@@ -136,6 +144,7 @@
 | 月間予約数(レッスン日の暦月・主催者 TZ) | 10 | 無制限 |
 | 連携カレンダー数 | 1 | 無制限 |
 | 予約のカレンダー書き込み | なし | あり |
+| キャンセルフィーのオンライン決済 | なし | あり |
 
 - 実効プラン: `plan = pro` かつ `subscriptionStatus = active` のときだけ pro。`past_due` / `canceled` は free の上限に落ちる。
 - 上限超過は `plan_limit`(HTTP 402)。
@@ -149,6 +158,7 @@ Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイ�
 lb_hosts                    主催者(テナント)
   id, email(unique), display_name, slug(unique), bio, plan(free|pro),
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
+  cancellation_fee_amount, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at
 lb_host_google_credentials  Google OAuth refresh token(主催者と 1:1、service role のみ参照)
   host_id(pk), refresh_token, updated_at
@@ -160,7 +170,7 @@ lb_students                 生徒
   id, email(unique), name, created_at
 lb_bookings                 予約
   id, host_id, student_id, start_at, end_at, status(confirmed|cancelled),
-  calendar_event_id, note, cancellation_fee_status(none|pending|paid), reminder_sent_at, created_at, updated_at
+  calendar_event_id, note, cancellation_fee_status(none|pending|paid), cancellation_fee_amount, reminder_sent_at, created_at, updated_at
   unique(host_id, start_at) where status='confirmed'   -- 二重予約防止
 lb_change_requests          変更要求
   id, booking_id, host_id, student_id, kind(cancel|reschedule),
@@ -189,6 +199,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/hosts/{hostId}/slots?from&to` | 空き枠。`from`/`to` は受付ウィンドウで自動的にクリップ |
 | POST | `/billing/webhook` | Stripe Webhook(生ボディ・署名検証) |
 | POST | `/internal/cron/reminders` | 前日リマインドの実行(`x-cron-secret` ヘッダ必須) |
+| POST | `/billing/connect-webhook` | Stripe Connect Webhook(キャンセルフィー決済・アカウント状態) |
 
 ### 生徒
 | Method | Path | 説明 |
@@ -199,6 +210,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/bookings` | 自分の予約一覧(`requiresApprovalToChange` 付き) |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
 | POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAt?}` → 200 `applied` / 202 `pending_approval` |
+| POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
 
 ### 主催者
 | Method | Path | 説明 |
@@ -218,6 +230,9 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?}` |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-paid` | キャンセルフィー入金確認 |
 | POST | `/hosts/{hostId}/bookings/{id}/cancel` | 休講 `{reason}`(生徒へのメッセージ必須) |
+| GET | `/hosts/{hostId}/connect` | Stripe 連携状況(利用可否・決済可否・金額) |
+| POST | `/hosts/{hostId}/connect/onboarding` | Stripe アカウント作成・オンボーディング URL `{refreshUrl, returnUrl}`(プロのみ) |
+| DELETE | `/hosts/{hostId}/connect` | Stripe 連携を外す(Stripe 側のアカウントは講師のものなので削除しない) |
 | GET | `/hosts/{hostId}/google/connect` | Google 認可 URL を返す |
 | GET | `/hosts/{hostId}/google/status` | 連携済みか |
 | DELETE | `/hosts/{hostId}/google` | 連携解除 |
@@ -278,11 +293,13 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | Supabase JWT 認証 | 実装済み(実トークンでの確認は未実施) |
 | フロントエンド(生徒・主催者画面) | 実装済み(web/)。Playwright で講師設定→予約→直前申請→承認の一連を確認済み |
 | 複数主催者(公開ページ slug・プラン上限) | 実装済み |
-| テスト | vitest 62 件、Playwright で主要フローを確認 |
+| テスト | vitest 75 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |
 | 休講・退会(データ削除) | 実装済み |
-| 組織(教室)プラン・キャンセルフィーの決済 | 未実装(docs/business.md のロードマップ) |
+| 前日リマインド | 実装済み |
+| キャンセルフィーのオンライン決済(Stripe Connect) | 実装済み(実 Stripe での確認は未実施。Fake で動作確認) |
+| 組織(教室)プラン | 未実装 |
 | 通知(メール等) | 未実装(`Notifier` フックのみ) |
 | 決済 | スコープ外(入金確認フラグのみ) |

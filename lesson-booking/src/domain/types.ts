@@ -21,6 +21,12 @@ export interface Host {
   subscriptionStatus: SubscriptionStatus;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
+  /** 直前キャンセルで「キャンセルフィーを支払う」が承認されたときの金額(円)。null なら金額は講師と生徒で個別に決める */
+  cancellationFeeAmount: number | null;
+  /** キャンセルフィーを受け取る講師本人の Stripe アカウント(Connect Standard) */
+  stripeConnectAccountId: string | null;
+  /** その Stripe アカウントで決済を受けられる状態か(本人確認・口座登録済み) */
+  connectChargesEnabled: boolean;
   /** IANA タイムゾーン。既定 Asia/Tokyo */
   timezone: string;
   /** 1レッスンの長さ(分) */
@@ -80,6 +86,8 @@ export interface Booking {
   note: string | null;
   /** キャンセルフィー: none=不要 / pending=支払い意思あり未払い / paid=支払済 */
   cancellationFeeStatus: 'none' | 'pending' | 'paid';
+  /** 承認時点のキャンセルフィー金額(円)。金額未設定なら null */
+  cancellationFeeAmount: number | null;
   /** 前日リマインドを送った時刻。日時変更で null に戻る */
   reminderSentAt: string | null;
   createdAt: string;

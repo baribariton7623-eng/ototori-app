@@ -1,3 +1,4 @@
+import { canCollectFeeOnline } from '../domain/plans.js';
 import { LATE_CHANGE_OPTION_LABELS } from '../domain/rules.js';
 import type { Booking, ChangeRequest, Host, Student } from '../domain/types.js';
 import type { EmailMessage } from './EmailSender.js';
@@ -156,8 +157,7 @@ export function changeDecidedMails(
   }
   const detail =
     request.kind === 'cancel'
-      ? `キャンセルしたレッスン: ${range(before, tz)}` +
-        (after.cancellationFeeStatus === 'pending' ? '\nキャンセルフィーのお支払いについては講師の案内に従ってください。' : '')
+      ? `キャンセルしたレッスン: ${range(before, tz)}` + (after.cancellationFeeStatus === 'pending' ? feeGuide(ctx, host, after) : '')
       : `変更前: ${range(before, tz)}\n変更後: ${range(after, tz)}`;
   return [
     {
@@ -194,6 +194,37 @@ export function lessonReminderMails(ctx: TemplateContext, host: Host, student: S
         `\n\n予約の確認: ${links(ctx).mine}\n` +
         `※開始2週間前を過ぎているため、キャンセル・変更には講師の承認が必要です。` +
         footer(ctx),
+    },
+  ];
+}
+
+export function yen(amount: number): string {
+  return `${amount.toLocaleString('ja-JP')}円`;
+}
+
+function feeGuide(ctx: TemplateContext, host: Host, booking: Booking): string {
+  if (booking.cancellationFeeAmount === null) return '\nキャンセルフィーのお支払いについては講師の案内に従ってください。';
+  const amount = `\nキャンセルフィー: ${yen(booking.cancellationFeeAmount)}`;
+  if (canCollectFeeOnline(host)) return `${amount}\nマイ予約からクレジットカードでお支払いいただけます: ${links(ctx).mine}`;
+  return `${amount}\nお支払い方法は講師の案内に従ってください。`;
+}
+
+export function feePaidMails(ctx: TemplateContext, host: Host, student: Student, booking: Booking): EmailMessage[] {
+  const tz = host.timezone;
+  const amount = booking.cancellationFeeAmount !== null ? yen(booking.cancellationFeeAmount) : '';
+  return [
+    {
+      to: host.email,
+      subject: `【キャンセルフィー入金】${student.name || student.email} ${amount}`,
+      text:
+        `${host.displayName} さん\n\nキャンセルフィーがオンラインで支払われました。売上はあなたの Stripe アカウントに入金されます。\n\n` +
+        `生徒: ${student.name || '(名前未設定)'} <${student.email}>\n対象のレッスン: ${range(booking, tz)}\n金額: ${amount}\n\n予約一覧: ${links(ctx).host}` +
+        footer(ctx),
+    },
+    {
+      to: student.email,
+      subject: `【お支払い完了】キャンセルフィー ${amount}`,
+      text: `${studentName(student)}\n\n${host.displayName} へのキャンセルフィー(${amount})のお支払いが完了しました。\n\n対象のレッスン: ${range(booking, tz)}` + footer(ctx),
     },
   ];
 }

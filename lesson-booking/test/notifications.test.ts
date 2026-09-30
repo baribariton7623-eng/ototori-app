@@ -72,7 +72,8 @@ describe('通知メール', () => {
     expect(w.mail.sent).toHaveLength(1);
     expect(w.mail.sent[0]?.to).toBe(STUDENT);
     expect(w.mail.sent[0]?.subject).toBe('【申請結果】キャンセルが承認されました');
-    expect(w.mail.sent[0]?.text).toContain('キャンセルフィーのお支払い');
+    expect(w.mail.sent[0]?.text).toContain('キャンセルフィー: 3,000円');
+    expect(w.mail.sent[0]?.text).toContain('お支払い方法は講師の案内に従ってください');
     expect(w.mail.sent[0]?.text).toContain('次回お支払いください');
 
     w.mail.clear();

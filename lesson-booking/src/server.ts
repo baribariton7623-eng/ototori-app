@@ -1,7 +1,9 @@
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { FakeBillingProvider } from './billing/FakeBillingProvider.js';
+import { FakeFeePaymentProvider } from './billing/FakeFeePaymentProvider.js';
 import { StripeBillingProvider } from './billing/StripeBillingProvider.js';
+import { StripeFeePaymentProvider } from './billing/StripeFeePaymentProvider.js';
 import { FakeCalendarClient } from './calendar/FakeCalendarClient.js';
 import { GoogleCalendarClient } from './calendar/GoogleCalendarClient.js';
 import { loadConfig } from './config.js';
@@ -14,6 +16,7 @@ import { AccountService, type AccountCleanup } from './services/AccountService.j
 import { AvailabilityService } from './services/AvailabilityService.js';
 import { BillingService } from './services/BillingService.js';
 import { BookingService } from './services/BookingService.js';
+import { FeeService } from './services/FeeService.js';
 import { ReminderService } from './services/ReminderService.js';
 
 const cfg = loadConfig();
@@ -46,6 +49,11 @@ const billingProvider =
       )
     : new FakeBillingProvider(cfg.APP_BASE_URL);
 const billing = new BillingService(repos, billingProvider);
+const feeProvider =
+  cfg.BILLING === 'stripe'
+    ? new StripeFeePaymentProvider(cfg.STRIPE_SECRET_KEY, cfg.STRIPE_CONNECT_WEBHOOK_SECRET)
+    : new FakeFeePaymentProvider(cfg.APP_BASE_URL);
+const fees = new FeeService(repos, feeProvider, notifier);
 
 // 退会時の外部サービス後始末
 const supabaseAdmin =
@@ -84,6 +92,7 @@ const app = createApp({
   billing,
   accounts,
   reminders,
+  fees,
   cronSecret: cfg.CRON_SECRET,
   fakeBilling: cfg.BILLING === 'fake',
   clock: systemClock,

@@ -64,6 +64,7 @@ export function LandingScreen({ rules, onLogin }: { rules: Rules; onLogin: () =>
               <li>・予約数 無制限</li>
               <li>・連携カレンダー 無制限</li>
               <li>・予約を Google カレンダーに自動登録</li>
+              <li>・キャンセルフィーのカード決済(あなたの Stripe に直接入金)</li>
               <li>・フリーの機能すべて</li>
             </ul>
           </div>
@@ -74,7 +75,7 @@ export function LandingScreen({ rules, onLogin }: { rules: Rules; onLogin: () =>
         <h2 className="text-lg font-semibold">よくある質問</h2>
         <Faq q="生徒もアカウントが必要ですか?">空き枠の閲覧はログイン不要です。予約するときに Google アカウントでログインします。</Faq>
         <Faq q="キャンセルフィーの支払いもできますか?">
-          本サービスでは「支払う」という申請と、講師による入金確認を記録します。お金の受け渡しは講師と生徒の間で直接行ってください。
+          プロプランでは、講師の Stripe アカウントを連携すると、承認後に生徒がカードで支払えます。売上は講師の口座に直接入り、運営者は預かりません。現金や振込で受け取る場合は、講師が「入金確認」で記録できます。
         </Faq>
         <Faq q="カレンダーの予定の中身は見られますか?">
           見ません。空き枠の計算に「予定がある時間帯」だけを使い、件名や内容は取得しません。

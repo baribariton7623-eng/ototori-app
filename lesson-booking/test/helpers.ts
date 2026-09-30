@@ -1,4 +1,6 @@
 import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
+import { FakeFeePaymentProvider } from '../src/billing/FakeFeePaymentProvider.js';
+import { FeeService } from '../src/services/FeeService.js';
 import { FakeCalendarClient } from '../src/calendar/FakeCalendarClient.js';
 import { MemoryEmailSender } from '../src/notify/EmailSender.js';
 import { EmailNotifier } from '../src/notify/EmailNotifier.js';
@@ -36,6 +38,7 @@ export interface TestWorld {
   cleanup: AccountCleanup & { revoked: string[]; deletedAuthUsers: string[] };
   accounts: AccountService;
   reminders: ReminderService;
+  fees: FeeService;
   host: Host;
   student: Student;
 }
@@ -66,6 +69,7 @@ export async function setupWorld(): Promise<TestWorld> {
   };
   const accounts = new AccountService(repos, bookings, billing, cleanup, clock);
   const reminders = new ReminderService(repos, notifier, clock, 24);
+  const fees = new FeeService(repos, new FakeFeePaymentProvider('https://app.example.com'), notifier);
 
   const host = await repos.hosts.create({
     email: 'teacher@example.com',
@@ -76,6 +80,9 @@ export async function setupWorld(): Promise<TestWorld> {
     subscriptionStatus: 'active',
     stripeCustomerId: null,
     stripeSubscriptionId: null,
+    cancellationFeeAmount: 3000,
+    stripeConnectAccountId: null,
+    connectChargesEnabled: false,
     timezone: 'Asia/Tokyo',
     lessonMinutes: 60,
     minLeadMinutes: 60,
@@ -87,7 +94,7 @@ export async function setupWorld(): Promise<TestWorld> {
   await repos.hostCalendars.add({ hostId: host.id, calendarId: 'private@group.calendar.google.com', label: '私用', role: 'busy_source' });
 
   const student = await repos.students.create({ email: 'student@example.com', name: '生徒B' });
-  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, reminders, host, student };
+  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, reminders, fees, host, student };
 }
 
 /** JST のローカル日時を UTC Date に */

@@ -10,6 +10,7 @@ export interface PlanLimits {
   maxCalendars: number | null;
   maxBookingsPerMonth: number | null;
   calendarWrite: boolean;
+  onlineFeeCollection: boolean;
 }
 
 export interface Rules {
@@ -45,6 +46,9 @@ export interface Host {
   bio: string;
   plan: Plan;
   subscriptionStatus: SubscriptionStatus;
+  cancellationFeeAmount: number | null;
+  stripeConnectAccountId: string | null;
+  connectChargesEnabled: boolean;
   timezone: string;
   lessonMinutes: number;
   minLeadMinutes: number;
@@ -58,6 +62,8 @@ export interface PublicHost {
   bio: string;
   timezone: string;
   lessonMinutes: number;
+  cancellationFeeAmount: number | null;
+  onlineFeePayment: boolean;
 }
 
 export interface HostCalendar {
@@ -91,12 +97,24 @@ export interface Booking {
   calendarEventId: string | null;
   note: string | null;
   cancellationFeeStatus: 'none' | 'pending' | 'paid';
+  cancellationFeeAmount: number | null;
+  reminderSentAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface StudentBooking extends Booking {
   requiresApprovalToChange: boolean;
+  /** 未払いのキャンセルフィーをオンラインで払えるか */
+  feePayableOnline: boolean;
+}
+
+export interface ConnectStatus {
+  available: boolean;
+  accountId: string | null;
+  chargesEnabled: boolean;
+  active: boolean;
+  cancellationFeeAmount: number | null;
 }
 
 export interface StudentSummary {

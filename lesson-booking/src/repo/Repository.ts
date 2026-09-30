@@ -14,6 +14,7 @@ export interface HostRepository {
   findByEmail(email: string): Promise<Host | null>;
   findBySlug(slug: string): Promise<Host | null>;
   findByStripeCustomerId(customerId: string): Promise<Host | null>;
+  findByConnectAccountId(accountId: string): Promise<Host | null>;
   list(): Promise<Host[]>;
   /** 主催者と、その主催者に紐づく全データ(カレンダー設定・営業時間枠・予約・変更要求・Google 認可)を削除 */
   delete(id: string): Promise<void>;

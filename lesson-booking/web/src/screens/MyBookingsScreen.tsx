@@ -4,7 +4,7 @@ import type { ChangeOutcome, ChangeRequest, Rules, StudentBooking } from '../api
 import { ChangeDialog } from '../components/ChangeDialog';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
-import { fmtFull, fmtRange } from '../lib/format';
+import { fmtFull, fmtRange, yen } from '../lib/format';
 
 type Detail = StudentBooking & { changeRequests: ChangeRequest[] };
 
@@ -126,6 +126,31 @@ export function MyBookingsScreen({
                   {b.cancellationFeeStatus === 'paid' && <Badge tone="green">フィー支払済</Badge>}
                 </div>
               </div>
+              {b.cancellationFeeStatus === 'pending' && (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
+                  <span>
+                    キャンセルフィー{b.cancellationFeeAmount != null ? ` ${yen(b.cancellationFeeAmount)}` : ''}
+                    {b.feePayableOnline ? '' : ' — お支払い方法は講師の案内に従ってください'}
+                  </span>
+                  {b.feePayableOnline && (
+                    <button
+                      type="button"
+                      className="btn-primary py-1 text-xs"
+                      onClick={() => {
+                        const back = `${window.location.origin}/#/mine`;
+                        api
+                          .feeCheckout(b.id, back, back)
+                          .then(({ url }) => {
+                            window.location.href = url;
+                          })
+                          .catch(setError);
+                      }}
+                    >
+                      カードで支払う
+                    </button>
+                  )}
+                </div>
+              )}
               <History requests={details[b.id]?.changeRequests ?? []} rules={rules} />
             </div>
           ))}

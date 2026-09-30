@@ -32,6 +32,7 @@ beforeAll(async () => {
     billing: new BillingService(w.repos, new FakeBillingProvider('http://localhost')),
     accounts: w.accounts,
     reminders: w.reminders,
+    fees: w.fees,
     cronSecret: 'cron-test-secret',
     fakeBilling: true,
     clock: w.clock,
@@ -285,5 +286,61 @@ describe('定期実行エンドポイント', () => {
     const res3 = await fetch(base + '/internal/cron/reminders', { method: 'POST', headers: { 'x-cron-secret': 'cron-test-secret' } });
     expect(res3.status).toBe(200);
     expect(await res3.json()).toMatchObject({ checked: expect.any(Number), sent: expect.any(Number), failed: 0 });
+  });
+});
+
+describe('キャンセルフィー決済 API', () => {
+  const S3 = { 'x-dev-user-email': 'student3@example.com' };
+
+  it('講師が連携 → 生徒が決済 URL 取得 → fake 決済で支払済みになる', async () => {
+    // 講師A はプロ(テスト初期値)。金額設定と Stripe 連携
+    const patched = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { cancellationFeeAmount: 2500 });
+    expect(patched.status).toBe(200);
+    const tooSmall = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { cancellationFeeAmount: 10 });
+    expect(tooSmall.status).toBe(400);
+
+    const onboarding = await call('POST', `/hosts/${w.host.id}/connect/onboarding`, TEACHER, {
+      refreshUrl: 'http://localhost/#/host',
+      returnUrl: 'http://localhost/#/host',
+    });
+    expect(onboarding.status).toBe(200);
+    const ob = new URL(onboarding.json.url);
+    expect((await fetch(base + ob.pathname + ob.search, { redirect: 'manual' })).status).toBe(302);
+    const status = await call('GET', `/hosts/${w.host.id}/connect`, TEACHER);
+    expect(status.json).toMatchObject({ available: true, chargesEnabled: true, active: true, cancellationFeeAmount: 2500 });
+
+    const pub = await call('GET', `/hosts/by-slug/teacher-a`, {});
+    expect(pub.json).toMatchObject({ cancellationFeeAmount: 2500, onlineFeePayment: true });
+    expect(pub.json.stripeConnectAccountId).toBeUndefined();
+
+    // 直前予約 → フィー支払いで申請 → 承認
+    const b = await call('POST', '/bookings', S3, { hostId: w.host.id, startAt: jst('2026-10-08T15:00:00').toISOString() });
+    expect(b.status).toBe(201);
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S3, { kind: 'cancel', message: 'すみません', option: 'pay_cancellation_fee' });
+    expect(req.status).toBe(202);
+    await call('POST', `/hosts/${w.host.id}/change-requests/${req.json.request.id}/decision`, TEACHER, { decision: 'approve' });
+
+    const mine = await call('GET', '/bookings', S3);
+    const target = mine.json.find((x: { id: string }) => x.id === b.json.id);
+    expect(target).toMatchObject({ cancellationFeeStatus: 'pending', cancellationFeeAmount: 2500, feePayableOnline: true });
+
+    const checkout = await call('POST', `/bookings/${b.json.id}/fee-checkout`, S3, {
+      successUrl: 'http://localhost/#/mine',
+      cancelUrl: 'http://localhost/#/mine',
+    });
+    expect(checkout.status).toBe(200);
+    const co = new URL(checkout.json.url);
+    expect((await fetch(base + co.pathname + co.search, { redirect: 'manual' })).status).toBe(302);
+    const after = await call('GET', `/bookings/${b.json.id}`, S3);
+    expect(after.json).toMatchObject({ cancellationFeeStatus: 'paid', feePayableOnline: false });
+  });
+
+  it('Connect Webhook(fake は JSON をそのまま受ける)', async () => {
+    const res = await fetch(base + '/billing/connect-webhook', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'ignored', raw: 'x' }),
+    });
+    expect(res.status).toBe(200);
   });
 });
