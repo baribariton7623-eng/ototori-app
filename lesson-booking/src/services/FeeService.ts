@@ -44,6 +44,9 @@ export class FeeService {
     if (!booking) throw new DomainError('not_found', '予約が見つかりません');
     if (booking.studentId !== student.id) throw new DomainError('forbidden', 'この予約を操作する権限がありません');
     if (booking.cancellationFeeStatus !== 'pending') throw new DomainError('invalid_state', '未払いのキャンセルフィーはありません');
+    if (booking.cancellationFeeMethod !== 'card') {
+      throw new DomainError('invalid_state', 'この予約のキャンセルフィーはクレジットカード以外の方法で支払うことになっています');
+    }
     if (booking.cancellationFeeAmount === null) {
       throw new DomainError('invalid_state', 'キャンセルフィーの金額が設定されていません。講師の案内に従ってお支払いください');
     }

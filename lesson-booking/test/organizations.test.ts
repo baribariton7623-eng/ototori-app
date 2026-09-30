@@ -19,6 +19,8 @@ async function newHost(email: string, name: string, slug: string): Promise<Host>
     cancellationFeeAmount: null,
     stripeConnectAccountId: null,
     connectChargesEnabled: false,
+    feeMethods: ['bank_transfer', 'in_person', 'card'],
+    bankTransferInfo: '',
     organizationId: null,
     orgPlanActive: false,
     timezone: 'Asia/Tokyo',

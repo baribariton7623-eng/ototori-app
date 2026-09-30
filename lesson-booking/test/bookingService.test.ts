@@ -143,7 +143,7 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
 
   it('「キャンセルフィーを支払う」で承認されるとフィー未払い状態になり、主催者が入金確認できる', async () => {
     const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: NEAR });
-    const r = await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'cancel', message: 'すみません', option: 'pay_cancellation_fee' });
+    const r = await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'cancel', message: 'すみません', option: 'pay_cancellation_fee', feeMethod: 'in_person' });
     if (r.type !== 'pending_approval') throw new Error('unexpected');
     const { booking } = await w.bookings.decideRequest(r.request.id, w.host.id, 'approve');
     expect(booking.status).toBe('cancelled');
@@ -233,6 +233,8 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
       cancellationFeeAmount: null,
       stripeConnectAccountId: null,
       connectChargesEnabled: false,
+      feeMethods: ['bank_transfer', 'in_person', 'card'],
+      bankTransferInfo: '',
       organizationId: null,
       orgPlanActive: false,
       timezone: 'Asia/Tokyo',

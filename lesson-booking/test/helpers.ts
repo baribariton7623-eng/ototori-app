@@ -86,6 +86,8 @@ export async function setupWorld(): Promise<TestWorld> {
     cancellationFeeAmount: 3000,
     stripeConnectAccountId: null,
     connectChargesEnabled: false,
+    feeMethods: ['bank_transfer', 'in_person', 'card'],
+    bankTransferInfo: '',
     organizationId: null,
     orgPlanActive: false,
     timezone: 'Asia/Tokyo',

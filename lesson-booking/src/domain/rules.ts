@@ -1,6 +1,6 @@
 import { DomainError } from './errors.js';
 import { addDays, addMinutes, diffDays } from './time.js';
-import type { Booking, ChangeKind, LateChangeOption } from './types.js';
+import type { Booking, ChangeKind, FeeMethod, LateChangeOption } from './types.js';
 
 /** 予約できるのは今日から何日先まで */
 export const BOOKING_HORIZON_DAYS = 40;
@@ -21,6 +21,14 @@ export const LATE_CHANGE_OPTION_LABELS: Record<LateChangeOption, string> = {
   request_approval: '事情を説明して承認を求める',
   reschedule_within_two_weeks: '2週間以内の別日に振替を希望する',
   pay_cancellation_fee: 'キャンセルフィーを支払う',
+};
+
+export const FEE_METHODS: readonly FeeMethod[] = ['card', 'bank_transfer', 'in_person'] as const;
+
+export const FEE_METHOD_LABELS: Record<FeeMethod, string> = {
+  card: 'クレジットカード',
+  bank_transfer: '銀行振込',
+  in_person: '次回レッスン時に手渡し',
 };
 
 /** 予約受付ウィンドウ [開始, 終了) を返す */
@@ -89,6 +97,10 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
       '対応方法(承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う)を選択してください',
       { field: 'option', allowed: LATE_CHANGE_OPTIONS },
     );
+  }
+
+  if (input.option === 'pay_cancellation_fee' && input.kind !== 'cancel') {
+    throw new DomainError('validation', 'キャンセルフィーの支払いは、キャンセルの申請でのみ選べます', { field: 'option' });
   }
 
   const needsProposed = input.kind === 'reschedule' || input.option === 'reschedule_within_two_weeks';

@@ -6,6 +6,9 @@
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=日曜
 
 export type Plan = 'free' | 'pro';
+
+/** キャンセルフィーの支払い方法 */
+export type FeeMethod = 'card' | 'bank_transfer' | 'in_person';
 export type SubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';
 
 /** 主催者(講師)。SaaS のテナント単位 */
@@ -27,6 +30,10 @@ export interface Host {
   stripeConnectAccountId: string | null;
   /** その Stripe アカウントで決済を受けられる状態か(本人確認・口座登録済み) */
   connectChargesEnabled: boolean;
+  /** 受け付けるキャンセルフィーの支払い方法。card は Stripe 連携済みのときだけ実際に選べる */
+  feeMethods: FeeMethod[];
+  /** 銀行振込の振込先(銀行名・支店・種別・番号・名義)。承認後、その生徒にだけ表示する */
+  bankTransferInfo: string;
   /** 所属する教室(組織)。未所属なら null */
   organizationId: string | null;
   /** 所属教室の契約が有効か(教室の契約状態を所属講師に複製して持つ。OrganizationService が同期する) */
@@ -92,6 +99,8 @@ export interface Booking {
   cancellationFeeStatus: 'none' | 'pending' | 'paid';
   /** 承認時点のキャンセルフィー金額(円)。金額未設定なら null */
   cancellationFeeAmount: number | null;
+  /** 講師が承認したキャンセルフィーの支払い方法 */
+  cancellationFeeMethod: FeeMethod | null;
   /** 前日リマインドを送った時刻。日時変更で null に戻る */
   reminderSentAt: string | null;
   createdAt: string;
@@ -124,6 +133,8 @@ export interface ChangeRequest {
   message: string;
   /** 振替希望日時(kind=reschedule のとき必須) */
   proposedStartAt: string | null;
+  /** option=pay_cancellation_fee のとき生徒が選んだ支払い方法 */
+  feeMethod: FeeMethod | null;
   status: ChangeRequestStatus;
   /** 主催者の判断メモ */
   decisionNote: string | null;

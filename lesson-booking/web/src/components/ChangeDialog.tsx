@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { ChangeKind, ChangeOutcome, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
+import type { ChangeKind, ChangeOutcome, FeeMethod, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
 import { addDays, fmtRange, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
@@ -26,15 +26,22 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [host, setHost] = useState<PublicHost | null>(null);
+  const [feeMethod, setFeeMethod] = useState<FeeMethod | ''>('');
 
   useEffect(() => {
     api.hostPublic(booking.hostId).then(setHost).catch(() => setHost(null));
   }, [booking.hostId]);
 
-  // 振替を選ぶと自動で kind=reschedule に
+  // 振替を選ぶと日時変更、キャンセルフィーを選ぶとキャンセルに固定
   useEffect(() => {
     if (option === 'reschedule_within_two_weeks') setKind('reschedule');
+    if (option === 'pay_cancellation_fee') setKind('cancel');
+    if (option !== 'pay_cancellation_fee') setFeeMethod('');
   }, [option]);
+
+  const payingFee = late && option === 'pay_cancellation_fee';
+  const selectableMethods = host?.feeMethods ?? [];
+  const methodLabel = (m: FeeMethod) => rules.feeMethods.find((x) => x.value === m)?.label ?? m;
 
   const needsSlot = kind === 'reschedule';
 
@@ -59,7 +66,8 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const canSubmit =
     !busy &&
     (!needsSlot || proposed !== null) &&
-    (!late || (message.trim().length > 0 && option !== ''));
+    (!late || (message.trim().length > 0 && option !== '')) &&
+    (!payingFee || feeMethod !== '');
 
   async function submit() {
     setBusy(true);
@@ -70,6 +78,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
         message: late ? message.trim() : undefined,
         option: late && option ? option : undefined,
         proposedStartAt: needsSlot && proposed ? proposed : undefined,
+        feeMethod: payingFee && feeMethod ? feeMethod : undefined,
       });
       onDone(outcome);
     } catch (e) {
@@ -103,7 +112,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
               キャンセル
             </label>
             <label className={`flex-1 cursor-pointer rounded-lg border px-3 py-2 text-sm ${kind === 'reschedule' ? 'border-emerald-700 bg-emerald-50' : 'border-stone-300'}`}>
-              <input type="radio" className="mr-2" checked={kind === 'reschedule'} onChange={() => setKind('reschedule')} />
+              <input type="radio" className="mr-2" checked={kind === 'reschedule'} onChange={() => setKind('reschedule')} disabled={option === 'pay_cancellation_fee'} />
               日時を変更
             </label>
           </div>
@@ -114,20 +123,45 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
             <fieldset>
               <legend className="label">対応方法(必須)</legend>
               <div className="space-y-1.5">
-                {rules.lateChangeOptions.map((o) => (
-                  <label key={o.value} className={`flex items-start gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm ${option === o.value ? 'border-emerald-700 bg-emerald-50' : 'border-stone-300'}`}>
-                    <input type="radio" name="option" className="mt-0.5" checked={option === o.value} onChange={() => setOption(o.value)} />
-                    <span>
-                      {o.label}
-                      {o.value === 'pay_cancellation_fee' && host?.cancellationFeeAmount != null && (
-                        <span className="ml-1 font-medium">({yen(host.cancellationFeeAmount)}
-                          {host.onlineFeePayment ? '・承認後にカードで支払い' : ''})</span>
-                      )}
-                    </span>
-                  </label>
-                ))}
+                {rules.lateChangeOptions.map((o) => {
+                  const unavailable = o.value === 'pay_cancellation_fee' && host !== null && selectableMethods.length === 0;
+                  return (
+                    <label
+                      key={o.value}
+                      className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${unavailable ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${option === o.value ? 'border-emerald-700 bg-emerald-50' : 'border-stone-300'}`}
+                    >
+                      <input type="radio" name="option" className="mt-0.5" checked={option === o.value} disabled={unavailable} onChange={() => setOption(o.value)} />
+                      <span>
+                        {o.label}
+                        {o.value === 'pay_cancellation_fee' && host?.cancellationFeeAmount != null && (
+                          <span className="ml-1 font-medium">({yen(host.cancellationFeeAmount)})</span>
+                        )}
+                        {unavailable && <span className="block text-xs text-stone-500">この講師はキャンセルフィーの支払い方法を設定していません</span>}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </fieldset>
+            {payingFee && (
+              <fieldset>
+                <legend className="label">支払い方法(必須・講師の承認が必要です)</legend>
+                <div className="flex flex-col sm:flex-row gap-1.5">
+                  {selectableMethods.map((m) => (
+                    <label
+                      key={m}
+                      className={`flex-1 flex items-center gap-2 cursor-pointer rounded-lg border px-3 py-2 text-sm ${feeMethod === m ? 'border-emerald-700 bg-emerald-50' : 'border-stone-300'}`}
+                    >
+                      <input type="radio" name="feeMethod" checked={feeMethod === m} onChange={() => setFeeMethod(m)} />
+                      {methodLabel(m)}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-stone-500">
+                  承認されると、{feeMethod === 'card' ? 'マイ予約からカードで支払えます' : feeMethod === 'bank_transfer' ? '振込先がメールとマイ予約に表示されます' : feeMethod === 'in_person' ? '次回のレッスン時に講師へお支払いください' : '支払い方法ごとの案内が届きます'}。
+                </p>
+              </fieldset>
+            )}
             <div>
               <label className="label" htmlFor="change-message">
                 主催者へのメッセージ(必須)

@@ -63,7 +63,7 @@ describe('通知メール', () => {
   it('承認・却下の結果は生徒にだけ届き、講師のメッセージとフィー案内が入る', async () => {
     const b1 = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: NEAR });
     const b2 = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: jst('2026-10-07T10:00:00') });
-    const r1 = await w.bookings.requestChange({ bookingId: b1.id, student: w.student, kind: 'cancel', message: 'a', option: 'pay_cancellation_fee' });
+    const r1 = await w.bookings.requestChange({ bookingId: b1.id, student: w.student, kind: 'cancel', message: 'a', option: 'pay_cancellation_fee', feeMethod: 'in_person' });
     const r2 = await w.bookings.requestChange({ bookingId: b2.id, student: w.student, kind: 'cancel', message: 'b', option: 'request_approval' });
     if (r1.type !== 'pending_approval' || r2.type !== 'pending_approval') throw new Error('unexpected');
     w.mail.clear();
@@ -73,7 +73,8 @@ describe('通知メール', () => {
     expect(w.mail.sent[0]?.to).toBe(STUDENT);
     expect(w.mail.sent[0]?.subject).toBe('【申請結果】キャンセルが承認されました');
     expect(w.mail.sent[0]?.text).toContain('キャンセルフィー: 3,000円');
-    expect(w.mail.sent[0]?.text).toContain('お支払い方法は講師の案内に従ってください');
+    expect(w.mail.sent[0]?.text).toContain('お支払い方法: 次回レッスン時に手渡し');
+    expect(w.mail.sent[0]?.text).toContain('次回のレッスン時に講師へ直接お支払いください');
     expect(w.mail.sent[0]?.text).toContain('次回お支払いください');
 
     w.mail.clear();

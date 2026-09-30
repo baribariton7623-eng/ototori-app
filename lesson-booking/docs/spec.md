@@ -76,7 +76,7 @@
 | --- | --- | --- |
 | `request_approval` | 事情を説明して承認を求める | そのままキャンセル/変更の承認を求める |
 | `reschedule_within_two_weeks` | 2週間以内の別日に振替を希望する | 元のレッスン日から **前後 14 日以内** の空き枠を `proposedStartAt` で指定する(必須) |
-| `pay_cancellation_fee` | キャンセルフィーを支払う | 承認時に予約の `cancellationFeeStatus` を `pending` にし、主催者設定の金額を `cancellationFeeAmount` に記録する。支払いは §3.8 のオンライン決済、または主催者の入金確認で `paid` にする |
+| `pay_cancellation_fee` | キャンセルフィーを支払う | **キャンセルの申請でのみ選べる**。支払い方法(`feeMethod`: クレジットカード / 銀行振込 / 次回レッスン時に手渡し)の選択が必須で、主催者がキャンセルとあわせて承認する。承認時に `cancellationFeeStatus = pending`、主催者設定の金額を `cancellationFeeAmount`、支払い方法を `cancellationFeeMethod` に記録する(§3.8.1) |
 
 制約:
 - 1 予約につき `pending` の変更要求は 1 件まで(`change_request_pending`)。
@@ -110,6 +110,7 @@
 | 休講・主催者の退会 | 休講のお知らせ(講師メッセージ) | ー |
 | レッスンの 24 時間前(定期実行) | 明日のレッスン | ー |
 | キャンセルフィーのオンライン決済完了 | お支払い完了 | キャンセルフィー入金 |
+| 主催者がキャンセルフィーの支払い方法を変更 | お支払い方法の変更(新しい案内つき) | ー |
 
 - メール送信の失敗は業務処理を失敗させない(ログに記録)。1 通の失敗で他の宛先への送信は止めない。
 - 主催者のメールアドレスは生徒宛のメールに載せない。
@@ -144,6 +145,17 @@
 - 退会時: 管理者なら教室ごと削除、所属講師なら脱退。
 - 公開ページ `#/o/<slug>` に所属講師の一覧を表示し、各講師の予約ページへ案内する。教室の slug は講師の slug とは別の名前空間。
 
+### 3.8.1 キャンセルフィーの支払い方法
+- 主催者は受け付ける支払い方法(`feeMethods`)と振込先(`bankTransferInfo`)を設定する。生徒が選べるのは、そのうち実際に受け取れるものだけ(`availableFeeMethods`)。
+  - クレジットカード: Stripe 連携済み(プロ、§3.8)のときだけ
+  - 銀行振込: 振込先が入力されているときだけ
+  - 次回レッスン時に手渡し: 常に可
+- 生徒は申請時に支払い方法を選ぶ(必須)。主催者の承認画面に表示され、「キャンセルと○○を承認」で両方を承認する。方法に同意できない場合は却下し、メッセージで希望を伝える(予約は残り、生徒は別の方法で申請し直せる)。
+- 承認後の案内(メール・マイ予約): カードは支払いボタン、振込は振込先、手渡しは次回持参の案内。振込先は、振込で承認された未払いの予約の生徒にだけ返す(公開情報には含めない)。
+- 承認後の変更: 主催者は未払いの予約の支払い方法を予約一覧から変更できる(主催者の判断なので追加の承認は不要)。生徒に新しい案内をメールする。
+- 入金の消し込み: カードは Webhook で自動、振込・手渡しは主催者の「入金確認」。
+- オンライン決済の URL は、支払い方法がカードで承認された予約にだけ発行する。
+
 ### 3.7 複数主催者とプラン(SaaS)
 - 主催者一覧は公開しない。各主催者が `slug` 付きの公開予約ページ URL を生徒に共有する。slug は `^[a-z0-9-]{3,32}$`、全体で一意。未指定なら 10 文字のランダム値。
 - 生徒はログインなしで公開ページの空き枠を閲覧でき、予約時にログインを求める。
@@ -168,7 +180,7 @@ Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイ�
 lb_hosts                    主催者(テナント)
   id, email(unique), display_name, slug(unique), bio, plan(free|pro),
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
-  cancellation_fee_amount, stripe_connect_account_id(unique), connect_charges_enabled,
+  cancellation_fee_amount, fee_methods(text[]), bank_transfer_info, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at
 lb_organizations            教室
   id, name, slug(unique), bio, owner_host_id, subscription_status, stripe_customer_id(unique), stripe_subscription_id, created_at
@@ -186,12 +198,12 @@ lb_students                 生徒
   id, email(unique), name, created_at
 lb_bookings                 予約
   id, host_id, student_id, start_at, end_at, status(confirmed|cancelled),
-  calendar_event_id, note, cancellation_fee_status(none|pending|paid), cancellation_fee_amount, reminder_sent_at, created_at, updated_at
+  calendar_event_id, note, cancellation_fee_status(none|pending|paid), cancellation_fee_amount, cancellation_fee_method, reminder_sent_at, created_at, updated_at
   unique(host_id, start_at) where status='confirmed'   -- 二重予約防止
 lb_change_requests          変更要求
   id, booking_id, host_id, student_id, kind(cancel|reschedule),
   option(request_approval|reschedule_within_two_weeks|pay_cancellation_fee),
-  message, proposed_start_at, status(pending|approved|rejected), decision_note, created_at, decided_at
+  message, proposed_start_at, fee_method(card|bank_transfer|in_person), status(pending|approved|rejected), decision_note, created_at, decided_at
   unique(booking_id) where status='pending'            -- pending は 1 件
 ```
 
@@ -240,7 +252,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/bookings` | 予約作成 `{hostId, startAt, note?}` → 201 |
 | GET | `/bookings` | 自分の予約一覧(`requiresApprovalToChange` 付き) |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
-| POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAt?}` → 200 `applied` / 202 `pending_approval` |
+| POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAt?, feeMethod?}` → 200 `applied` / 202 `pending_approval` |
 | POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
 
 ### 主催者
@@ -261,6 +273,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?}` |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-paid` | キャンセルフィー入金確認 |
 | POST | `/hosts/{hostId}/bookings/{id}/cancel` | 休講 `{reason}`(生徒へのメッセージ必須) |
+| POST | `/hosts/{hostId}/bookings/{id}/fee-method` | 未払いキャンセルフィーの支払い方法を変更 `{method}` |
 | GET | `/hosts/{hostId}/connect` | Stripe 連携状況(利用可否・決済可否・金額) |
 | POST | `/hosts/{hostId}/connect/onboarding` | Stripe アカウント作成・オンボーディング URL `{refreshUrl, returnUrl}`(プロのみ) |
 | DELETE | `/hosts/{hostId}/connect` | Stripe 連携を外す(Stripe 側のアカウントは講師のものなので削除しない) |
@@ -324,7 +337,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | Supabase JWT 認証 | 実装済み(実トークンでの確認は未実施) |
 | フロントエンド(生徒・主催者画面) | 実装済み(web/)。Playwright で講師設定→予約→直前申請→承認の一連を確認済み |
 | 複数主催者(公開ページ slug・プラン上限) | 実装済み |
-| テスト | vitest 83 件、Playwright で主要フローを確認 |
+| キャンセルフィーの支払い方法(カード・振込・手渡し)と講師承認 | 実装済み |
+| テスト | vitest 92 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |

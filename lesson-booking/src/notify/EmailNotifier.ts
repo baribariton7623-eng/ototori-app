@@ -6,6 +6,7 @@ import {
   cancelledByHostMails,
   changeDecidedMails,
   changeRequestedMails,
+  feeMethodChangedMails,
   feePaidMails,
   orgInvitedMails,
   lessonReminderMails,
@@ -36,6 +37,9 @@ export class EmailNotifier implements Notifier {
 
   lessonReminder: Notifier['lessonReminder'] = async (e) =>
     this.sendAll(lessonReminderMails(this.ctx, e.host, e.student, e.booking));
+
+  feeMethodChanged: Notifier['feeMethodChanged'] = async (e) =>
+    this.sendAll(feeMethodChangedMails(this.ctx, e.host, e.student, e.booking));
 
   feePaid: Notifier['feePaid'] = async (e) => this.sendAll(feePaidMails(this.ctx, e.host, e.student, e.booking));
 

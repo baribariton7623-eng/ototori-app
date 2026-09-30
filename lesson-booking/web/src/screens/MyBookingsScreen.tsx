@@ -97,7 +97,10 @@ export function MyBookingsScreen({
               )}
               {pending && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900 space-y-0.5">
-                  <div>{KIND_JA[pending.kind]}を申請中 — {rules.lateChangeOptions.find((o) => o.value === pending.option)?.label}</div>
+                  <div>
+                    {KIND_JA[pending.kind]}を申請中 — {rules.lateChangeOptions.find((o) => o.value === pending.option)?.label}
+                    {pending.feeMethod && `(${rules.feeMethods.find((m) => m.value === pending.feeMethod)?.label})`}
+                  </div>
                   {pending.proposedStartAt && <div>振替希望: {fmtFull(pending.proposedStartAt)}</div>}
                   <div className="text-stone-600">「{pending.message}」</div>
                 </div>
@@ -127,11 +130,22 @@ export function MyBookingsScreen({
                 </div>
               </div>
               {b.cancellationFeeStatus === 'pending' && (
-                <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
-                  <span>
-                    キャンセルフィー{b.cancellationFeeAmount != null ? ` ${yen(b.cancellationFeeAmount)}` : ''}
-                    {b.feePayableOnline ? '' : ' — お支払い方法は講師の案内に従ってください'}
-                  </span>
+                <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900">
+                  <div className="space-y-1">
+                    <div>
+                      キャンセルフィー{b.cancellationFeeAmount != null ? ` ${yen(b.cancellationFeeAmount)}` : ''}
+                      {b.cancellationFeeMethod && ` — ${rules.feeMethods.find((m) => m.value === b.cancellationFeeMethod)?.label}`}
+                    </div>
+                    {b.cancellationFeeMethod === 'bank_transfer' && b.bankTransferInfo && (
+                      <div>
+                        <div className="font-medium">振込先</div>
+                        <pre className="whitespace-pre-wrap font-sans">{b.bankTransferInfo}</pre>
+                      </div>
+                    )}
+                    {b.cancellationFeeMethod === 'in_person' && <div>次回のレッスン時に講師へお支払いください。</div>}
+                    {b.cancellationFeeMethod === 'card' && !b.feePayableOnline && <div>現在カード決済を受け付けていません。講師の案内に従ってください。</div>}
+                    {!b.cancellationFeeMethod && <div>お支払い方法は講師の案内に従ってください。</div>}
+                  </div>
                   {b.feePayableOnline && (
                     <button
                       type="button"
@@ -184,6 +198,7 @@ function History({ requests, rules }: { requests: ChangeRequest[]; rules: Rules 
               {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {rules.lateChangeOptions.find((o) => o.value === r.option)?.label} → <b>{STATUS_JA[r.status]}</b>
             </div>
             <div>「{r.message}」</div>
+            {r.feeMethod && <div>支払い方法: {rules.feeMethods.find((m) => m.value === r.feeMethod)?.label}</div>}
             {r.decisionNote && <div className="text-stone-500">主催者: {r.decisionNote}</div>}
           </li>
         ))}

@@ -10,6 +10,7 @@ import {
   PLAN_LABELS,
   PLAN_LIMITS,
   SLUG_PATTERN,
+  availableFeeMethods,
   canCollectFeeOnline,
   effectivePlan,
   isProViaOrganization,
@@ -20,6 +21,8 @@ import { monthRange } from '../domain/time.js';
 import type { Host } from '../domain/types.js';
 import {
   BOOKING_HORIZON_DAYS,
+  FEE_METHODS,
+  FEE_METHOD_LABELS,
   LATE_CHANGE_OPTION_LABELS,
   LATE_CHANGE_OPTIONS,
   LATE_CHANGE_THRESHOLD_DAYS,
@@ -78,6 +81,8 @@ const createHostSchema = z.object({
   slug: slugSchema.optional(),
   bio: z.string().trim().max(2000).optional(),
   cancellationFeeAmount: z.number().int().min(MIN_FEE_JPY, `キャンセルフィーは${MIN_FEE_JPY}円以上にしてください`).max(1_000_000).nullable().optional(),
+  feeMethods: z.array(z.enum(FEE_METHODS)).max(3).transform((a) => [...new Set(a)]).optional(),
+  bankTransferInfo: z.string().trim().max(500).optional(),
   timezone: z.string().trim().min(1).optional(),
   lessonMinutes: z.number().int().min(5).max(24 * 60).optional(),
   minLeadMinutes: z.number().int().min(0).max(30 * 24 * 60).optional(),
@@ -125,6 +130,7 @@ const changeSchema = z.object({
   message: z.string().trim().max(2000).optional(),
   option: z.enum(LATE_CHANGE_OPTIONS).optional(),
   proposedStartAt: isoDate.optional(),
+  feeMethod: z.enum(FEE_METHODS).optional(),
 });
 
 const decisionSchema = z.object({
@@ -174,6 +180,7 @@ export function createApp(deps: AppDeps): express.Express {
       lateChangeThresholdDays: LATE_CHANGE_THRESHOLD_DAYS,
       rescheduleRangeDays: RESCHEDULE_RANGE_DAYS,
       lateChangeOptions: LATE_CHANGE_OPTIONS.map((value) => ({ value, label: LATE_CHANGE_OPTION_LABELS[value] })),
+      feeMethods: FEE_METHODS.map((value) => ({ value, label: FEE_METHOD_LABELS[value] })),
       plans: (Object.keys(PLAN_LIMITS) as (keyof typeof PLAN_LIMITS)[]).map((plan) => ({
         plan,
         label: PLAN_LABELS[plan],
@@ -246,6 +253,8 @@ function hostRoutes(deps: AppDeps): Router {
       stripeCustomerId: null,
       stripeSubscriptionId: null,
       cancellationFeeAmount: body.cancellationFeeAmount ?? null,
+      feeMethods: body.feeMethods ?? ['bank_transfer', 'in_person', 'card'],
+      bankTransferInfo: body.bankTransferInfo ?? '',
       stripeConnectAccountId: null,
       connectChargesEnabled: false,
       organizationId: null,
@@ -340,6 +349,7 @@ function hostRoutes(deps: AppDeps): Router {
       out.push({
         ...c,
         optionLabel: LATE_CHANGE_OPTION_LABELS[c.option],
+        feeMethodLabel: c.feeMethod ? FEE_METHOD_LABELS[c.feeMethod] : null,
         booking,
         student: student ? { id: student.id, email: student.email, name: student.name } : null,
       });
@@ -356,6 +366,13 @@ function hostRoutes(deps: AppDeps): Router {
   r.post('/hosts/:hostId/bookings/:id/fee-paid', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     res.json(await deps.bookings.markFeePaid(param(req, 'id'), host.id));
+  }));
+
+  // 承認済み・未払いのキャンセルフィーの支払い方法を講師が変更する
+  r.post('/hosts/:hostId/bookings/:id/fee-method', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const body = z.object({ method: z.enum(FEE_METHODS) }).parse(req.body);
+    res.json(await deps.bookings.changeFeeMethod(param(req, 'id'), host.id, body.method));
   }));
 
   // 主催者による取り消し(休講)。生徒へのメッセージ必須
@@ -476,6 +493,8 @@ function publicHost(h: Host) {
     lessonMinutes: h.lessonMinutes,
     cancellationFeeAmount: h.cancellationFeeAmount,
     onlineFeePayment: canCollectFeeOnline(h),
+    /** 生徒が今選べる支払い方法(振込先そのものは公開しない) */
+    feeMethods: availableFeeMethods(h),
   };
 }
 
@@ -642,7 +661,7 @@ function studentRoutes(deps: AppDeps): Router {
     const now = deps.clock.now();
     const hosts = new Map<string, Host | null>();
     for (const b of list) if (!hosts.has(b.hostId)) hosts.set(b.hostId, await repos.hosts.findById(b.hostId));
-    res.json(list.map((b) => ({ ...decorate(b, now), feePayableOnline: feePayable(b, hosts.get(b.hostId) ?? null) })));
+    res.json(list.map((b) => ({ ...decorate(b, now), ...feeInfo(b, hosts.get(b.hostId) ?? null) })));
   }));
 
   r.get('/bookings/:id', wrap(async (req, res) => {
@@ -650,7 +669,7 @@ function studentRoutes(deps: AppDeps): Router {
     const booking = await deps.bookings.getBookingForStudent(param(req, 'id'), student);
     const requests = await repos.changeRequests.listByBooking(booking.id);
     const host = await repos.hosts.findById(booking.hostId);
-    res.json({ ...decorate(booking, deps.clock.now()), feePayableOnline: feePayable(booking, host), changeRequests: requests });
+    res.json({ ...decorate(booking, deps.clock.now()), ...feeInfo(booking, host), changeRequests: requests });
   }));
 
   // 未払いのキャンセルフィーをオンラインで支払う(講師の Stripe アカウントへ直接)
@@ -675,6 +694,7 @@ function studentRoutes(deps: AppDeps): Router {
       message: body.message,
       option: body.option,
       proposedStartAt: body.proposedStartAt,
+      feeMethod: body.feeMethod,
     });
     res.status(outcome.type === 'applied' ? 200 : 202).json(outcome);
   }));
@@ -720,9 +740,26 @@ function googleRoutes(deps: AppDeps): Router {
 
 // ---------- 共通 ----------
 
+type FeeFields = { cancellationFeeStatus: string; cancellationFeeAmount: number | null; cancellationFeeMethod: string | null };
+
 /** この予約の未払いキャンセルフィーをオンラインで払えるか */
-function feePayable(b: { cancellationFeeStatus: string; cancellationFeeAmount: number | null }, host: Host | null): boolean {
-  return b.cancellationFeeStatus === 'pending' && b.cancellationFeeAmount !== null && host !== null && canCollectFeeOnline(host);
+function feePayable(b: FeeFields, host: Host | null): boolean {
+  return (
+    b.cancellationFeeStatus === 'pending' &&
+    b.cancellationFeeMethod === 'card' &&
+    b.cancellationFeeAmount !== null &&
+    host !== null &&
+    canCollectFeeOnline(host)
+  );
+}
+
+/** 生徒向け: 支払い方法ごとに必要な情報。振込先は、振込で承認された未払いの予約にだけ付ける */
+function feeInfo(b: FeeFields, host: Host | null): { feePayableOnline: boolean; bankTransferInfo?: string } {
+  const out: { feePayableOnline: boolean; bankTransferInfo?: string } = { feePayableOnline: feePayable(b, host) };
+  if (b.cancellationFeeStatus === 'pending' && b.cancellationFeeMethod === 'bank_transfer' && host?.bankTransferInfo.trim()) {
+    out.bankTransferInfo = host.bankTransferInfo.trim();
+  }
+  return out;
 }
 
 /** 予約に「今の時点で直前変更扱いか」を付ける(クライアントの文言分岐用) */

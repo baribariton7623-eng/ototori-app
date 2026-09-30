@@ -96,6 +96,7 @@ describe('API 一連の流れ', () => {
       kind: 'cancel',
       message: '体調不良のためお休みします',
       option: 'pay_cancellation_fee',
+      feeMethod: 'in_person',
     });
     expect(req.status).toBe(202);
     expect(req.json.type).toBe('pending_approval');
@@ -317,7 +318,7 @@ describe('キャンセルフィー決済 API', () => {
     // 直前予約 → フィー支払いで申請 → 承認
     const b = await call('POST', '/bookings', S3, { hostId: w.host.id, startAt: jst('2026-10-08T15:00:00').toISOString() });
     expect(b.status).toBe(201);
-    const req = await call('POST', `/bookings/${b.json.id}/change`, S3, { kind: 'cancel', message: 'すみません', option: 'pay_cancellation_fee' });
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S3, { kind: 'cancel', message: 'すみません', option: 'pay_cancellation_fee', feeMethod: 'card' });
     expect(req.status).toBe(202);
     await call('POST', `/hosts/${w.host.id}/change-requests/${req.json.request.id}/decision`, TEACHER, { decision: 'approve' });
 
@@ -385,5 +386,45 @@ describe('教室プラン API', () => {
     expect(pub.json.teachers.map((t: { slug: string }) => t.slug)).toEqual(['school-owner', 'school-member']);
     expect(pub.json.teachers[0].email).toBeUndefined();
     expect((await call('GET', '/orgs/by-slug/nothing', {})).status).toBe(404);
+  });
+});
+
+describe('支払い方法 API', () => {
+  const S4 = { 'x-dev-user-email': 'student4@example.com' };
+
+  it('公開情報に選べる方法、承認後の生徒には振込先、講師は方法を変更できる', async () => {
+    const bank = 'ゆうちょ銀行 〇一八支店 普通 7654321 コウシエー';
+    const p = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { feeMethods: ['bank_transfer', 'in_person'], bankTransferInfo: bank });
+    expect(p.status).toBe(200);
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { feeMethods: ['cash'] })).status).toBe(400);
+
+    const pub = await call('GET', '/hosts/by-slug/teacher-a', {});
+    expect(pub.json.feeMethods).toEqual(['bank_transfer', 'in_person']);
+    expect(JSON.stringify(pub.json)).not.toContain('7654321');
+
+    const rules = await call('GET', '/rules', {});
+    expect(rules.json.feeMethods.map((m: { label: string }) => m.label)).toEqual(['クレジットカード', '銀行振込', '次回レッスン時に手渡し']);
+
+    const b = await call('POST', '/bookings', S4, { hostId: w.host.id, startAt: jst('2026-10-09T16:00:00').toISOString() });
+    const noMethod = await call('POST', `/bookings/${b.json.id}/change`, S4, { kind: 'cancel', message: 'x', option: 'pay_cancellation_fee' });
+    expect(noMethod.status).toBe(400);
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S4, { kind: 'cancel', message: 'x', option: 'pay_cancellation_fee', feeMethod: 'bank_transfer' });
+    expect(req.status).toBe(202);
+
+    const list = await call('GET', `/hosts/${w.host.id}/change-requests`, TEACHER);
+    expect(list.json.find((c: { id: string }) => c.id === req.json.request.id)?.feeMethodLabel).toBe('銀行振込');
+    // 承認前の生徒には振込先を出さない
+    expect((await call('GET', `/bookings/${b.json.id}`, S4)).json.bankTransferInfo).toBeUndefined();
+
+    await call('POST', `/hosts/${w.host.id}/change-requests/${req.json.request.id}/decision`, TEACHER, { decision: 'approve' });
+    const detail = await call('GET', `/bookings/${b.json.id}`, S4);
+    expect(detail.json).toMatchObject({ cancellationFeeMethod: 'bank_transfer', bankTransferInfo: bank, feePayableOnline: false });
+
+    const byStudent = await call('POST', `/hosts/${w.host.id}/bookings/${b.json.id}/fee-method`, S4, { method: 'in_person' });
+    expect(byStudent.status).toBe(403);
+    const changed = await call('POST', `/hosts/${w.host.id}/bookings/${b.json.id}/fee-method`, TEACHER, { method: 'in_person' });
+    expect(changed.status).toBe(200);
+    expect(changed.json.cancellationFeeMethod).toBe('in_person');
+    expect((await call('GET', `/bookings/${b.json.id}`, S4)).json.bankTransferInfo).toBeUndefined();
   });
 });

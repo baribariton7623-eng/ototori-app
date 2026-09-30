@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { AvailabilityWindow, BillingInfo, ConnectStatus, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
+import type {
+  AvailabilityWindow,
+  BillingInfo,
+  ConnectStatus,
+  FeeMethod,
+  Host,
+  HostBooking,
+  HostCalendar,
+  HostChangeRequest,
+  Rules,
+} from '../api/types';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../components/ui';
 import { OrgTab } from './OrgTab';
@@ -51,14 +61,14 @@ export function HostScreen({
             key={t.key}
             type="button"
             onClick={() => setTab(t.key)}
-            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.key ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+            className={`flex-1 whitespace-nowrap rounded-md px-1.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium ${tab === t.key ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
           >
             {t.label}
           </button>
         ))}
       </nav>
       {tab === 'requests' && <RequestsTab host={host} rules={rules} />}
-      {tab === 'bookings' && <BookingsTab host={host} />}
+      {tab === 'bookings' && <BookingsTab host={host} rules={rules} />}
       {tab === 'org' && <OrgTab host={host} onChanged={() => void api.me().then((m) => m.host && onHostUpdated(m.host))} />}
       {tab === 'settings' && <SettingsTab host={host} rules={rules} onHostUpdated={onHostUpdated} onDeleted={onDeleted} />}
     </div>
@@ -127,6 +137,7 @@ function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
           </div>
           <div className="text-sm">
             <Badge>{r.optionLabel}</Badge>
+            {r.feeMethodLabel && <span className="ml-1"><Badge tone="amber">支払い方法: {r.feeMethodLabel}</Badge></span>}
             <p className="mt-1 whitespace-pre-wrap rounded bg-stone-50 p-2">{r.message}</p>
           </div>
           {r.status === 'pending' ? (
@@ -140,7 +151,7 @@ function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
               <div className="flex justify-end gap-2">
                 <button type="button" className="btn-danger" disabled={busyId === r.id} onClick={() => decide(r, 'reject')}>却下</button>
                 <button type="button" className="btn-primary" disabled={busyId === r.id} onClick={() => decide(r, 'approve')}>
-                  {r.kind === 'cancel' ? 'キャンセルを承認' : '振替を承認'}
+                  {r.kind === 'cancel' ? (r.feeMethodLabel ? `キャンセルと${r.feeMethodLabel}を承認` : 'キャンセルを承認') : '振替を承認'}
                 </button>
               </div>
             </div>
@@ -155,8 +166,14 @@ function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
 
 // ---------- 予約一覧 ----------
 
-function BookingsTab({ host }: { host: Host }) {
+function BookingsTab({ host, rules }: { host: Host; rules: Rules }) {
   const [list, setList] = useState<HostBooking[] | null>(null);
+  const [methods, setMethods] = useState<FeeMethod[]>([]);
+
+  useEffect(() => {
+    api.hostPublic(host.id).then((p) => setMethods(p.feeMethods)).catch(() => setMethods([]));
+  }, [host.id]);
+  const methodLabel = (m: FeeMethod) => rules.feeMethods.find((x) => x.value === m)?.label ?? m;
   const [error, setError] = useState<unknown>(null);
   const [cancelTarget, setCancelTarget] = useState<HostBooking | null>(null);
   const [reason, setReason] = useState('');
@@ -247,8 +264,26 @@ function BookingsTab({ host }: { host: Host }) {
               </div>
               <div className="flex flex-col items-end gap-1">
                 {b.status === 'cancelled' ? <Badge tone="red">キャンセル</Badge> : <Badge>終了</Badge>}
-                {b.cancellationFeeStatus === 'pending' && b.cancellationFeeAmount != null && (
-                  <span className="text-xs text-amber-800">フィー {yen(b.cancellationFeeAmount)} 未払い</span>
+                {b.cancellationFeeStatus === 'pending' && (
+                  <span className="text-xs text-amber-800">
+                    フィー{b.cancellationFeeAmount != null ? ` ${yen(b.cancellationFeeAmount)}` : ''} 未払い
+                  </span>
+                )}
+                {b.cancellationFeeStatus === 'pending' && (
+                  <label className="text-xs text-stone-600 flex items-center gap-1">
+                    支払い方法
+                    <select
+                      className="rounded border border-stone-300 bg-white px-1 py-0.5 text-xs"
+                      value={b.cancellationFeeMethod ?? ''}
+                      aria-label="支払い方法を変更"
+                      onChange={(e) => api.changeFeeMethod(host.id, b.id, e.target.value as FeeMethod).then(load).catch(setError)}
+                    >
+                      {!b.cancellationFeeMethod && <option value="">未指定</option>}
+                      {[...new Set([...(b.cancellationFeeMethod ? [b.cancellationFeeMethod] : []), ...methods])].map((m) => (
+                        <option key={m} value={m}>{methodLabel(m)}</option>
+                      ))}
+                    </select>
+                  </label>
                 )}
                 {b.cancellationFeeStatus === 'pending' && (
                   <button
@@ -289,6 +324,8 @@ function SettingsTab({
   const [connect, setConnect] = useState<ConnectStatus | null>(null);
   const [feeInput, setFeeInput] = useState<string>(host.cancellationFeeAmount != null ? String(host.cancellationFeeAmount) : '');
   const [feeSaved, setFeeSaved] = useState(false);
+  const [feeMethods, setFeeMethods] = useState<FeeMethod[]>(host.feeMethods);
+  const [bankInfo, setBankInfo] = useState(host.bankTransferInfo);
   const [error, setError] = useState<unknown>(null);
   const [copied, setCopied] = useState(false);
 
@@ -416,17 +453,50 @@ function SettingsTab({
         <p className="text-xs text-stone-600">
           生徒が直前のキャンセル申請で「キャンセルフィーを支払う」を選び、あなたが承認したときの金額です。承認した時点の金額が請求されます。空欄にすると金額は表示せず、支払いは個別にやり取りします。
         </p>
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
-            <label className="label" htmlFor="fee-amount">金額(円)</label>
-            <input id="fee-amount" className="input" type="number" min={50} step={100} value={feeInput} onChange={(e) => setFeeInput(e.target.value)} placeholder="例: 3000" />
+        <div>
+          <label className="label" htmlFor="fee-amount">金額(円)</label>
+          <input id="fee-amount" className="input" type="number" min={50} step={100} value={feeInput} onChange={(e) => setFeeInput(e.target.value)} placeholder="例: 3000" />
+        </div>
+        <fieldset>
+          <legend className="label">受け付ける支払い方法(生徒が申請時に選び、あなたが承認します)</legend>
+          <div className="space-y-1">
+            {rules.feeMethods.map((m) => (
+              <label key={m.value} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={feeMethods.includes(m.value)}
+                  onChange={(e) => setFeeMethods(e.target.checked ? [...feeMethods, m.value] : feeMethods.filter((x) => x !== m.value))}
+                />
+                {m.label}
+                {m.value === 'card' && !connect?.active && <span className="text-xs text-stone-500">(下の Stripe 連携が完了すると選べるようになります)</span>}
+                {m.value === 'bank_transfer' && !bankInfo.trim() && <span className="text-xs text-stone-500">(振込先の入力が必要です)</span>}
+              </label>
+            ))}
           </div>
+        </fieldset>
+        {feeMethods.includes('bank_transfer') && (
+          <div>
+            <label className="label" htmlFor="bank-info">振込先(承認後、その生徒にだけ表示されます)</label>
+            <textarea
+              id="bank-info"
+              className="input min-h-16"
+              value={bankInfo}
+              onChange={(e) => setBankInfo(e.target.value)}
+              placeholder={'例: ○○銀行 △△支店 普通 1234567\n名義: スズキ ハナコ'}
+            />
+          </div>
+        )}
+        <div className="flex justify-end">
           <button
             type="button"
             className="btn-secondary"
             onClick={() =>
               api
-                .updateHost(host.id, { cancellationFeeAmount: feeInput.trim() === '' ? null : Number(feeInput) })
+                .updateHost(host.id, {
+                  cancellationFeeAmount: feeInput.trim() === '' ? null : Number(feeInput),
+                  feeMethods,
+                  bankTransferInfo: bankInfo,
+                })
                 .then((h) => {
                   onHostUpdated(h);
                   setFeeSaved(true);

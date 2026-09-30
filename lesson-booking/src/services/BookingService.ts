@@ -1,14 +1,15 @@
 import type { CalendarClient } from '../calendar/CalendarClient.js';
 import { DomainError } from '../domain/errors.js';
-import { limitsFor } from '../domain/plans.js';
+import { availableFeeMethods, limitsFor } from '../domain/plans.js';
 import { monthRange } from '../domain/time.js';
 import {
+  FEE_METHOD_LABELS,
   assertWithinBookingWindow,
   isLateChange,
   isWithinRescheduleRange,
   validateLateChangeRequest,
 } from '../domain/rules.js';
-import type { Booking, ChangeKind, ChangeRequest, Host, LateChangeOption, Student } from '../domain/types.js';
+import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOption, Student } from '../domain/types.js';
 import { noopNotifier, safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
@@ -32,6 +33,8 @@ export interface ChangeInput {
   option?: LateChangeOption | undefined;
   /** kind=reschedule のとき必須 */
   proposedStartAt?: Date | undefined;
+  /** option=pay_cancellation_fee のとき必須 */
+  feeMethod?: FeeMethod | undefined;
 }
 
 export type ChangeOutcome =
@@ -72,6 +75,7 @@ export class BookingService {
       note: input.note?.trim() || null,
       cancellationFeeStatus: 'none',
       cancellationFeeAmount: null,
+      cancellationFeeMethod: null,
       reminderSentAt: null,
     });
 
@@ -143,6 +147,22 @@ export class BookingService {
       message: input.message,
       proposedStartAt: input.proposedStartAt,
     });
+    let feeMethod: FeeMethod | null = null;
+    if (validated.option === 'pay_cancellation_fee') {
+      const allowed = availableFeeMethods(host);
+      if (allowed.length === 0) {
+        throw new DomainError('validation', 'この講師はキャンセルフィーの支払い方法を設定していません。「承認を求める」で申請してください', {
+          field: 'feeMethod',
+        });
+      }
+      if (!input.feeMethod || !allowed.includes(input.feeMethod)) {
+        throw new DomainError('validation', `支払い方法を選択してください(${allowed.map((m) => FEE_METHOD_LABELS[m]).join(' / ')})`, {
+          field: 'feeMethod',
+          allowed,
+        });
+      }
+      feeMethod = input.feeMethod;
+    }
     if (validated.proposedStartAt) {
       // 振替先は受付ウィンドウ内かつ空いていることを要求時点でも確認する
       assertWithinBookingWindow(validated.proposedStartAt, now, host.minLeadMinutes);
@@ -161,6 +181,7 @@ export class BookingService {
       option: validated.option,
       message: validated.message,
       proposedStartAt: validated.proposedStartAt?.toISOString() ?? null,
+      feeMethod,
       status: 'pending',
       decisionNote: null,
     });
@@ -207,8 +228,11 @@ export class BookingService {
       const fee = request.option === 'pay_cancellation_fee' ? 'pending' : 'none';
       updated = await this.applyCancel(host, booking, fee);
       if (fee === 'pending') {
-        // 承認時点の金額を記録(後で講師が金額を変えても、この請求は変わらない)
-        updated = await this.repos.bookings.update(updated.id, { cancellationFeeAmount: host.cancellationFeeAmount });
+        // 承認時点の金額と、生徒が選び講師が承認した支払い方法を記録(後で講師が設定を変えても、この請求は変わらない)
+        updated = await this.repos.bookings.update(updated.id, {
+          cancellationFeeAmount: host.cancellationFeeAmount,
+          cancellationFeeMethod: request.feeMethod,
+        });
       }
     } else {
       if (!request.proposedStartAt) throw new DomainError('invalid_state', '振替先日時がありません');
@@ -226,6 +250,25 @@ export class BookingService {
     const after = updated;
     await safeNotify(() => this.notifier.changeDecided({ host, student, request: approved, before: booking, after }));
     return { request: approved, booking: updated };
+  }
+
+  /**
+   * 主催者が、承認済み・未払いのキャンセルフィーの支払い方法を変更する(生徒から相談を受けた場合など)。
+   * 講師の判断なので追加の承認は不要。生徒に新しい支払い方法の案内を送る。
+   */
+  async changeFeeMethod(bookingId: string, hostId: string, method: FeeMethod): Promise<Booking> {
+    const booking = await this.getBookingForHost(bookingId, hostId);
+    if (booking.cancellationFeeStatus !== 'pending') throw new DomainError('invalid_state', 'この予約に未払いのキャンセルフィーはありません');
+    const host = await this.availability.getHost(hostId);
+    const allowed = availableFeeMethods(host);
+    if (!allowed.includes(method)) {
+      throw new DomainError('validation', `${FEE_METHOD_LABELS[method]}は現在受け付けていません。設定画面で有効にしてください`, { allowed });
+    }
+    if (booking.cancellationFeeMethod === method) return booking;
+    const updated = await this.repos.bookings.update(booking.id, { cancellationFeeMethod: method });
+    const student = await this.repos.students.findById(booking.studentId);
+    if (student) await safeNotify(() => this.notifier.feeMethodChanged({ host, student, booking: updated }));
+    return updated;
   }
 
   /** 主催者がキャンセルフィーの入金を確認したとき */

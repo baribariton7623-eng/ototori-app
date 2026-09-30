@@ -118,6 +118,8 @@ curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<api-host>/internal/cron/r
 2. 「連結アカウント」のイベントを受ける Webhook を `https://<api-host>/billing/connect-webhook` に別途登録し、`checkout.session.completed`, `checkout.session.async_payment_succeeded`, `account.updated` を購読 → `STRIPE_CONNECT_WEBHOOK_SECRET`
 3. 講師は設定画面の「キャンセルフィー」で金額を入れ、「Stripe と連携する」から本人確認・口座登録を行う。売上は講師の口座に直接入り、運営者は預からない
 
+キャンセルフィーの支払い方法は、クレジットカード・銀行振込・次回レッスン時に手渡しの 3 つ。講師が受け付ける方法と振込先を設定し、生徒が申請時に選んだ方法を講師がキャンセルとあわせて承認する。承認後も講師が予約一覧から方法を変更できる。
+
 ローカル(`BILLING=fake`)では「Stripe と連携する」「カードで支払う」が即時に完了する。
 
 教室プラン(席数課金): Stripe で「講師 1 人あたり月額」の Price を作り `STRIPE_PRICE_ID_ORG_SEAT` に設定する。Webhook は個人プランと同じ `/billing/webhook` で、顧客 ID から教室の契約かを判別する。講師画面の「教室」タブから作成・招待・契約する。

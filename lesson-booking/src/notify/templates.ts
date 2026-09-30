@@ -1,5 +1,5 @@
 import { canCollectFeeOnline } from '../domain/plans.js';
-import { LATE_CHANGE_OPTION_LABELS } from '../domain/rules.js';
+import { FEE_METHOD_LABELS, LATE_CHANGE_OPTION_LABELS } from '../domain/rules.js';
 import type { Booking, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
 import type { EmailMessage } from './EmailSender.js';
 
@@ -113,7 +113,8 @@ export function changeRequestedMails(ctx: TemplateContext, host: Host, student: 
   const tz = host.timezone;
   const kindJa = request.kind === 'cancel' ? 'キャンセル' : '日時変更';
   const proposed = request.proposedStartAt ? `\n振替希望: ${fmt(request.proposedStartAt, tz)}` : '';
-  const option = LATE_CHANGE_OPTION_LABELS[request.option];
+  const option =
+    LATE_CHANGE_OPTION_LABELS[request.option] + (request.feeMethod ? `(支払い方法: ${FEE_METHOD_LABELS[request.feeMethod]})` : '');
   return [
     {
       to: host.email,
@@ -202,11 +203,38 @@ export function yen(amount: number): string {
   return `${amount.toLocaleString('ja-JP')}円`;
 }
 
+/** 支払い方法ごとの案内。承認メールと支払い方法変更メールで使う */
 function feeGuide(ctx: TemplateContext, host: Host, booking: Booking): string {
-  if (booking.cancellationFeeAmount === null) return '\nキャンセルフィーのお支払いについては講師の案内に従ってください。';
-  const amount = `\nキャンセルフィー: ${yen(booking.cancellationFeeAmount)}`;
-  if (canCollectFeeOnline(host)) return `${amount}\nマイ予約からクレジットカードでお支払いいただけます: ${links(ctx).mine}`;
-  return `${amount}\nお支払い方法は講師の案内に従ってください。`;
+  const amount = booking.cancellationFeeAmount !== null ? `\nキャンセルフィー: ${yen(booking.cancellationFeeAmount)}` : '\nキャンセルフィー: 金額は講師の案内に従ってください';
+  const method = booking.cancellationFeeMethod;
+  if (!method) return `${amount}\nお支払い方法は講師の案内に従ってください。`;
+  const head = `${amount}\nお支払い方法: ${FEE_METHOD_LABELS[method]}`;
+  switch (method) {
+    case 'card':
+      return canCollectFeeOnline(host)
+        ? `${head}\nマイ予約からクレジットカードでお支払いください: ${links(ctx).mine}`
+        : `${head}\n現在カード決済を受け付けていません。講師の案内に従ってください。`;
+    case 'bank_transfer':
+      return host.bankTransferInfo.trim()
+        ? `${head}\n振込先:\n${host.bankTransferInfo.trim()}\n※振込手数料はご負担ください。期限は講師の案内に従ってください。`
+        : `${head}\n振込先は講師の案内に従ってください。`;
+    case 'in_person':
+      return `${head}\n次回のレッスン時に講師へ直接お支払いください。`;
+  }
+}
+
+export function feeMethodChangedMails(ctx: TemplateContext, host: Host, student: Student, booking: Booking): EmailMessage[] {
+  return [
+    {
+      to: student.email,
+      subject: `【お支払い方法の変更】キャンセルフィー(${host.displayName})`,
+      text:
+        `${studentName(student)}\n\n${host.displayName} がキャンセルフィーのお支払い方法を変更しました。\n\n対象のレッスン: ${range(booking, host.timezone)}` +
+        feeGuide(ctx, host, booking) +
+        `\n\n予約の確認: ${links(ctx).mine}` +
+        footer(ctx),
+    },
+  ];
 }
 
 export function feePaidMails(ctx: TemplateContext, host: Host, student: Student, booking: Booking): EmailMessage[] {

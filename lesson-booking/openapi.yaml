@@ -49,6 +49,13 @@ paths:
                   bookingHorizonDays: { type: integer, example: 40 }
                   lateChangeThresholdDays: { type: integer, example: 14 }
                   rescheduleRangeDays: { type: integer, example: 14 }
+                  feeMethods:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value: { $ref: '#/components/schemas/FeeMethod' }
+                        label: { type: string }
                   lateChangeOptions:
                     type: array
                     items:
@@ -365,6 +372,9 @@ paths:
                 message: { type: string, description: 直前変更時は必須 }
                 option: { $ref: '#/components/schemas/LateChangeOption' }
                 proposedStartAt: { type: string, format: date-time }
+                feeMethod:
+                  $ref: '#/components/schemas/FeeMethod'
+                  description: option=pay_cancellation_fee のとき必須(kind=cancel のみ)。主催者が受け付けている方法から選ぶ
       responses:
         '200':
           description: 即時反映
@@ -437,6 +447,20 @@ paths:
       summary: 公開情報を id で取得
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PublicHost' } } } }
+  /hosts/{hostId}/bookings/{id}/fee-method:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    post:
+      tags: [host]
+      summary: 未払いキャンセルフィーの支払い方法を変更(生徒に案内メール)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [method], properties: { method: { $ref: '#/components/schemas/FeeMethod' } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Booking' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /hosts/{hostId}/bookings/{id}/cancel:
     parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
     post:
@@ -789,6 +813,10 @@ components:
                   message: { type: string }
                   details: {}
   schemas:
+    FeeMethod:
+      type: string
+      enum: [card, bank_transfer, in_person]
+      description: クレジットカード / 銀行振込 / 次回レッスン時に手渡し
     LateChangeOption:
       type: string
       enum: [request_approval, reschedule_within_two_weeks, pay_cancellation_fee]
@@ -814,6 +842,7 @@ components:
         lessonMinutes: { type: integer }
         cancellationFeeAmount: { type: [integer, 'null'] }
         onlineFeePayment: { type: boolean }
+        feeMethods: { type: array, items: { $ref: '#/components/schemas/FeeMethod' }, description: 生徒が今選べる支払い方法 }
     Host:
       type: object
       properties:
@@ -825,6 +854,8 @@ components:
         plan: { type: string, enum: [free, pro] }
         subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
         cancellationFeeAmount: { type: [integer, 'null'] }
+        feeMethods: { type: array, items: { $ref: '#/components/schemas/FeeMethod' } }
+        bankTransferInfo: { type: string }
         stripeConnectAccountId: { type: [string, 'null'] }
         connectChargesEnabled: { type: boolean }
         organizationId: { type: [string, 'null'] }
@@ -873,6 +904,7 @@ components:
         note: { type: [string, 'null'] }
         cancellationFeeStatus: { type: string, enum: [none, pending, paid] }
         cancellationFeeAmount: { type: [integer, 'null'] }
+        cancellationFeeMethod: { oneOf: [{ $ref: '#/components/schemas/FeeMethod' }, { type: 'null' }] }
         reminderSentAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -887,6 +919,9 @@ components:
             feePayableOnline:
               type: boolean
               description: 未払いのキャンセルフィーをオンラインで払えるか
+            bankTransferInfo:
+              type: string
+              description: 振込で承認された未払いの予約にだけ付く振込先
     ChangeRequest:
       type: object
       properties:
@@ -898,6 +933,7 @@ components:
         option: { $ref: '#/components/schemas/LateChangeOption' }
         message: { type: string }
         proposedStartAt: { type: [string, 'null'], format: date-time }
+        feeMethod: { oneOf: [{ $ref: '#/components/schemas/FeeMethod' }, { type: 'null' }] }
         status: { type: string, enum: [pending, approved, rejected] }
         decisionNote: { type: [string, 'null'] }
         createdAt: { type: string, format: date-time }

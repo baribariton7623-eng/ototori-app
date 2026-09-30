@@ -1,6 +1,7 @@
 /** バックエンド(../src/domain/types.ts)の API 応答型。手で同期する */
 
 export type LateChangeOption = 'request_approval' | 'reschedule_within_two_weeks' | 'pay_cancellation_fee';
+export type FeeMethod = 'card' | 'bank_transfer' | 'in_person';
 export type ChangeKind = 'cancel' | 'reschedule';
 
 export type Plan = 'free' | 'pro';
@@ -18,6 +19,7 @@ export interface Rules {
   lateChangeThresholdDays: number;
   rescheduleRangeDays: number;
   lateChangeOptions: { value: LateChangeOption; label: string }[];
+  feeMethods: { value: FeeMethod; label: string }[];
   plans: { plan: Plan; label: string; limits: PlanLimits }[];
 }
 
@@ -50,6 +52,8 @@ export interface Host {
   cancellationFeeAmount: number | null;
   stripeConnectAccountId: string | null;
   connectChargesEnabled: boolean;
+  feeMethods: FeeMethod[];
+  bankTransferInfo: string;
   organizationId: string | null;
   orgPlanActive: boolean;
   timezone: string;
@@ -67,6 +71,8 @@ export interface PublicHost {
   lessonMinutes: number;
   cancellationFeeAmount: number | null;
   onlineFeePayment: boolean;
+  /** 生徒が今選べる支払い方法 */
+  feeMethods: FeeMethod[];
 }
 
 export interface HostCalendar {
@@ -101,6 +107,7 @@ export interface Booking {
   note: string | null;
   cancellationFeeStatus: 'none' | 'pending' | 'paid';
   cancellationFeeAmount: number | null;
+  cancellationFeeMethod: FeeMethod | null;
   reminderSentAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +117,8 @@ export interface StudentBooking extends Booking {
   requiresApprovalToChange: boolean;
   /** 未払いのキャンセルフィーをオンラインで払えるか */
   feePayableOnline: boolean;
+  /** 振込で承認された未払いの予約にだけ付く振込先 */
+  bankTransferInfo?: string;
 }
 
 export interface ConnectStatus {
@@ -135,6 +144,7 @@ export interface ChangeRequest {
   option: LateChangeOption;
   message: string;
   proposedStartAt: string | null;
+  feeMethod: FeeMethod | null;
   status: 'pending' | 'approved' | 'rejected';
   decisionNote: string | null;
   createdAt: string;
@@ -143,6 +153,7 @@ export interface ChangeRequest {
 
 export interface HostChangeRequest extends ChangeRequest {
   optionLabel: string;
+  feeMethodLabel: string | null;
   booking: Booking | null;
   student: StudentSummary | null;
 }

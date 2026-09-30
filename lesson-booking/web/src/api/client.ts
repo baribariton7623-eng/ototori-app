@@ -7,6 +7,7 @@ import type {
   ChangeKind,
   ChangeOutcome,
   ChangeRequest,
+  FeeMethod,
   Host,
   HostBooking,
   HostCalendar,
@@ -75,7 +76,7 @@ export const api = {
   booking: (id: string) => request<StudentBooking & { changeRequests: ChangeRequest[] }>('GET', `/bookings/${id}`),
   change: (
     id: string,
-    input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAt?: string },
+    input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAt?: string; feeMethod?: FeeMethod },
   ) => request<ChangeOutcome>('POST', `/bookings/${id}/change`, input),
 
   // 主催者
@@ -83,7 +84,9 @@ export const api = {
     request<Host>('POST', '/hosts', input),
   updateHost: (
     hostId: string,
-    patch: Partial<Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes' | 'cancellationFeeAmount'>>,
+    patch: Partial<
+      Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes' | 'cancellationFeeAmount' | 'feeMethods' | 'bankTransferInfo'>
+    >,
   ) =>
     request<Host>('PATCH', `/hosts/${hostId}`, patch),
   connectStatus: (hostId: string) => request<ConnectStatus>('GET', `/hosts/${hostId}/connect`),
@@ -131,6 +134,8 @@ export const api = {
     }),
   cancelByHost: (hostId: string, bookingId: string, reason: string) =>
     request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/cancel`, { reason }),
+  changeFeeMethod: (hostId: string, bookingId: string, method: FeeMethod) =>
+    request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/fee-method`, { method }),
   markFeePaid: (hostId: string, bookingId: string) => request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/fee-paid`),
   googleStatus: (hostId: string) => request<{ connected: boolean }>('GET', `/hosts/${hostId}/google/status`),
   googleConnectUrl: (hostId: string) => request<{ url: string }>('GET', `/hosts/${hostId}/google/connect`),

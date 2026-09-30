@@ -10,9 +10,16 @@ beforeEach(async () => {
 const NEAR = jst('2026-10-06T10:00:00');
 const urls = { successUrl: 'https://app.example.com/#/mine', cancelUrl: 'https://app.example.com/#/mine' };
 
-async function approvedFeeBooking(world: TestWorld) {
+async function approvedFeeBooking(world: TestWorld, feeMethod: 'card' | 'bank_transfer' | 'in_person' = 'card') {
   const b = await world.bookings.createBooking({ hostId: world.host.id, student: world.student, startAt: NEAR });
-  const r = await world.bookings.requestChange({ bookingId: b.id, student: world.student, kind: 'cancel', message: '急用', option: 'pay_cancellation_fee' });
+  const r = await world.bookings.requestChange({
+    bookingId: b.id,
+    student: world.student,
+    kind: 'cancel',
+    message: '急用',
+    option: 'pay_cancellation_fee',
+    feeMethod,
+  });
   if (r.type !== 'pending_approval') throw new Error('unexpected');
   const { booking } = await world.bookings.decideRequest(r.request.id, world.host.id, 'approve');
   return booking;
@@ -20,15 +27,17 @@ async function approvedFeeBooking(world: TestWorld) {
 
 describe('キャンセルフィーのオンライン決済', () => {
   it('承認時点の金額が予約に記録され、後で講師が金額を変えても変わらない', async () => {
-    const booking = await approvedFeeBooking(w);
+    const booking = await approvedFeeBooking(w, 'in_person');
     expect(booking.cancellationFeeStatus).toBe('pending');
     expect(booking.cancellationFeeAmount).toBe(3000);
     await w.repos.hosts.update(w.host.id, { cancellationFeeAmount: 5000 });
     expect((await w.repos.bookings.findById(booking.id))?.cancellationFeeAmount).toBe(3000);
   });
 
-  it('講師が Stripe 未連携なら生徒はオンラインで払えない', async () => {
-    const booking = await approvedFeeBooking(w);
+  it('カードで承認された後に講師が Stripe 連携を外すと、オンラインでは払えない', async () => {
+    await w.fees.completeOnboardingForDev(w.host.id, 'acct_teacher');
+    const booking = await approvedFeeBooking(w, 'card');
+    await w.fees.disconnect((await w.repos.hosts.findById(w.host.id))!);
     await expect(w.fees.checkoutUrl(booking.id, w.student, urls)).rejects.toMatchObject({ code: 'invalid_state' });
   });
 
@@ -91,6 +100,6 @@ describe('キャンセルフィーのオンライン決済', () => {
     await approvedFeeBooking(w);
     const approved = w.mail.to('student@example.com').find((m) => m.subject.includes('承認されました'));
     expect(approved?.text).toContain('キャンセルフィー: 3,000円');
-    expect(approved?.text).toContain('マイ予約からクレジットカードでお支払いいただけます');
+    expect(approved?.text).toContain('マイ予約からクレジットカードでお支払いください');
   });
 });

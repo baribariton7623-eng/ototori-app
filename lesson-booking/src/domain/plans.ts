@@ -1,4 +1,5 @@
-import type { Host, Plan } from './types.js';
+import { FEE_METHODS } from './rules.js';
+import type { FeeMethod, Host, Plan } from './types.js';
 
 /** プランごとの上限。null は無制限 */
 export interface PlanLimits {
@@ -63,4 +64,20 @@ export function canCollectFeeOnline(
   host: PlanSubject & Pick<Host, 'stripeConnectAccountId' | 'connectChargesEnabled'>,
 ): boolean {
   return limitsFor(host).onlineFeeCollection && host.stripeConnectAccountId !== null && host.connectChargesEnabled;
+}
+
+/**
+ * 生徒が今選べる支払い方法。講師の設定のうち、実際に受け取れるものだけ。
+ * - card: Stripe 連携済み(プロ)のときだけ
+ * - bank_transfer: 振込先が入力されているときだけ
+ */
+export function availableFeeMethods(
+  host: PlanSubject & Pick<Host, 'feeMethods' | 'bankTransferInfo' | 'stripeConnectAccountId' | 'connectChargesEnabled'>,
+): FeeMethod[] {
+  return FEE_METHODS.filter((m) => {
+    if (!host.feeMethods.includes(m)) return false;
+    if (m === 'card') return canCollectFeeOnline(host);
+    if (m === 'bank_transfer') return host.bankTransferInfo.trim().length > 0;
+    return true;
+  });
 }

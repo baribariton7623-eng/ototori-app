@@ -22,6 +22,8 @@ export interface Notifier {
   cancelledByHost(e: Parties & { booking: Booking; reason: string }): Promise<void>;
   /** レッスン前日のリマインド(生徒宛) */
   lessonReminder(e: Parties & { booking: Booking }): Promise<void>;
+  /** 主催者がキャンセルフィーの支払い方法を変更した */
+  feeMethodChanged(e: Parties & { booking: Booking }): Promise<void>;
   /** キャンセルフィーがオンラインで支払われた */
   feePaid(e: Parties & { booking: Booking }): Promise<void>;
   /** 教室への招待(招待先はまだ登録していない可能性がある) */
@@ -35,6 +37,7 @@ export const noopNotifier: Notifier = {
   async changeDecided() {},
   async cancelledByHost() {},
   async lessonReminder() {},
+  async feeMethodChanged() {},
   async feePaid() {},
   async orgInvited() {},
 };
