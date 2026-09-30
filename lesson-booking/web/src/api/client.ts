@@ -49,6 +49,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   rules: () => request<Rules>('GET', '/rules'),
   me: () => request<Me>('GET', '/me'),
+  deleteMe: (confirm: string) =>
+    request<{ deletedHost: boolean; deletedStudent: boolean; cancelledBookings: number }>('DELETE', '/me', { confirm }),
 
   // 公開
   hostBySlug: (slug: string) => request<PublicHost>('GET', `/hosts/by-slug/${encodeURIComponent(slug)}`),
@@ -96,6 +98,8 @@ export const api = {
       decision,
       note: note || undefined,
     }),
+  cancelByHost: (hostId: string, bookingId: string, reason: string) =>
+    request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/cancel`, { reason }),
   markFeePaid: (hostId: string, bookingId: string) => request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/fee-paid`),
   googleStatus: (hostId: string) => request<{ connected: boolean }>('GET', `/hosts/${hostId}/google/status`),
   googleConnectUrl: (hostId: string) => request<{ url: string }>('GET', `/hosts/${hostId}/google/connect`),

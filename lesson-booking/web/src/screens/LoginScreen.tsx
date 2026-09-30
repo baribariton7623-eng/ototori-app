@@ -21,6 +21,7 @@ export function LoginScreen({ onLogin, embedded = false }: { onLogin: () => void
           Google でログイン
         </button>
         <ErrorBanner error={error} />
+        <p className="text-xs text-stone-500">ログインすると<a className="underline" href="/terms" target="_blank" rel="noreferrer">利用規約</a>と<a className="underline" href="/privacy" target="_blank" rel="noreferrer">プライバシーポリシー</a>に同意したものとみなします。</p>
       </div>
     );
   }
@@ -50,6 +51,7 @@ export function LoginScreen({ onLogin, embedded = false }: { onLogin: () => void
       </div>
       <ErrorBanner error={error} onClose={() => setError(null)} />
       <button type="submit" className="btn-primary w-full">ログイン</button>
+      <p className="text-xs text-stone-500">ログインすると<a className="underline" href="/terms" target="_blank" rel="noreferrer">利用規約</a>と<a className="underline" href="/privacy" target="_blank" rel="noreferrer">プライバシーポリシー</a>に同意したものとみなします。</p>
     </form>
   );
 }

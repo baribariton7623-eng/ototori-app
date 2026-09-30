@@ -170,6 +170,10 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       async list() {
         return must(await sb.from('lb_hosts').select().returns<Row[]>(), '主催者一覧').map(hostFromRow);
       },
+      async delete(id) {
+        // 関連テーブルは on delete cascade
+        maybe(await sb.from('lb_hosts').delete().eq('id', id), '主催者削除');
+      },
     },
     hostCalendars: {
       async add(input) {
@@ -206,6 +210,9 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       },
       async create(input) {
         return studentFromRow(must(await sb.from('lb_students').insert({ email: input.email, name: input.name }).select().single<Row>(), '生徒作成'));
+      },
+      async delete(id) {
+        maybe(await sb.from('lb_students').delete().eq('id', id), '生徒削除');
       },
     },
     bookings: {

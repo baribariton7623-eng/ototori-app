@@ -12,6 +12,8 @@ export interface BillingProvider {
   createCheckoutUrl(host: Host, urls: { success: string; cancel: string }): Promise<string>;
   /** 支払い方法変更・解約などの管理ページ URL */
   createPortalUrl(host: Host, returnUrl: string): Promise<string>;
+  /** 退会時: サブスクリプションを即時解約する(請求記録は Stripe 側に残る) */
+  cancelImmediately(host: Host): Promise<void>;
   /** Webhook の署名検証と正規化。不正なら throw */
   parseWebhook(rawBody: Buffer, signature: string | undefined): Promise<BillingEvent>;
 }

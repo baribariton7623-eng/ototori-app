@@ -90,7 +90,14 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
    - `role: write_target` … 予約確定時にイベントを書き込む(1 件)。空き枠計算でも予定ありとして扱う
    - `role: busy_source` … 空き枠計算で予定ありとして扱うだけ(複数可)。calendarId は Google カレンダーの設定画面「カレンダー ID」
 
-### 3. Stripe(プロプラン課金)
+### 3. 通知メール(Resend)
+1. Resend でアカウントを作り、送信元ドメインを追加して DNS に SPF / DKIM レコードを設定
+2. `.env` に `MAIL=resend`, `RESEND_API_KEY`, `MAIL_FROM="レッスン予約 <noreply@あなたのドメイン>"`, `SERVICE_NAME`
+3. ローカルは `MAIL=console` のままで、送信内容がサーバーログに出る
+
+送るメール: 予約確定・新しい予約・キャンセル/変更完了・申請受付・要承認・申請結果・休講のお知らせ(一覧は spec.md §3.6)。
+
+### 4. Stripe(プロプラン課金)
 1. Stripe で商品「プロプラン」と月額 Price を作成 → `STRIPE_PRICE_ID_PRO`
 2. Webhook `https://<api-host>/billing/webhook` を登録し `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted` を購読 → `STRIPE_WEBHOOK_SECRET`
 3. Customer Portal を有効化
@@ -98,7 +105,14 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
 
 ローカルは `BILLING=fake` のまま、設定画面の「プロプランにアップグレード」で即時にプロになる。プランの上限は `src/domain/plans.ts`。
 
-### 4. デプロイ
+### 5. 運営者情報と法務ページ
+`web/.env` の `VITE_OPERATOR_NAME` などを設定してから `cd web && npm run build`。
+利用規約 `/terms`、プライバシーポリシー `/privacy`、特定商取引法に基づく表記 `/tokushoho` に反映される。未設定の項目は赤字で「未設定」と表示される。文面はひな形のため、公開前に専門家の確認を推奨。
+
+### 6. Google OAuth 審査
+講師が 100 人を超える前に審査を通す必要がある。手順と文案は [docs/google-oauth-verification.md](./docs/google-oauth-verification.md)。
+
+### 7. デプロイ
 `npm run build` 後 `node dist/server.js`。常駐 Node が動く環境(Render / Fly.io / Railway / Cloud Run など)を想定。ポートは `PORT`。
 
 ## ディレクトリ
@@ -110,6 +124,7 @@ src/
   services/      AvailabilityService(空き枠) / BookingService(予約・変更要求・承認)
   calendar/      CalendarClient インターフェース / Google 実装 / Fake 実装
   billing/       BillingProvider インターフェース / Stripe 実装 / Fake 実装
+  notify/        Notifier(業務イベント)/ EmailNotifier / メール文面 / 送信手段(Resend・コンソール・メモリ)
   repo/          Repository インターフェース / InMemory 実装 / Supabase 実装
   http/          Express アプリ・認証ミドルウェア
   server.ts      エントリポイント(環境変数で実装を差し替え)
@@ -121,7 +136,6 @@ test/                 vitest
 
 ## 未実装・今後
 
-- 通知(メール・LINE 等) — `Notifier` インターフェースに差し込む。販売するなら最優先(docs/business.md)
-- LP・利用規約・プライバシーポリシー・特商法表記、退会(データ削除)
+- 組織(教室)プラン、キャンセルフィーの決済(Stripe Connect)、前日リマインド(docs/business.md §7)
 - 決済 — キャンセルフィーは「支払う意思」と「入金確認」のフラグのみ
-- 実 Supabase / 実 Google アカウントでの結合テスト
+- 実 Supabase / 実 Google / 実 Stripe / 実 Resend での結合確認

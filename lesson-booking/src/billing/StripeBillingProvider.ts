@@ -47,6 +47,17 @@ export class StripeBillingProvider implements BillingProvider {
     return session.url;
   }
 
+  async cancelImmediately(host: Host): Promise<void> {
+    if (!host.stripeSubscriptionId) return;
+    try {
+      await this.stripe.subscriptions.cancel(host.stripeSubscriptionId);
+    } catch (e) {
+      // 既に解約済み(resource_missing)なら成功扱い
+      if ((e as { code?: string }).code === 'resource_missing') return;
+      throw e;
+    }
+  }
+
   async parseWebhook(rawBody: Buffer, signature: string | undefined): Promise<BillingEvent> {
     if (!signature) throw new DomainError('forbidden', 'Stripe 署名がありません');
     let event: Stripe.Event;

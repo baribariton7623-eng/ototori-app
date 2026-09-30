@@ -21,6 +21,12 @@ export class BillingService {
     return this.provider.createPortalUrl(host, returnUrl);
   }
 
+  /** 退会時の即時解約。有料契約がなければ何もしない */
+  async cancelForAccountDeletion(host: Host): Promise<void> {
+    if (host.subscriptionStatus === 'none' || host.subscriptionStatus === 'canceled') return;
+    await this.provider.cancelImmediately(host);
+  }
+
   async handleWebhook(rawBody: Buffer, signature: string | undefined): Promise<BillingEvent> {
     const event = await this.provider.parseWebhook(rawBody, signature);
     await this.apply(event);

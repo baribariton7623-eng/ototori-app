@@ -37,6 +37,14 @@ paths:
               schema:
                 type: object
                 properties:
+                  plans:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        plan: { type: string, enum: [free, pro] }
+                        label: { type: string }
+                        limits: { type: object }
                   bookingHorizonDays: { type: integer, example: 40 }
                   lateChangeThresholdDays: { type: integer, example: 14 }
                   rescheduleRangeDays: { type: integer, example: 14 }
@@ -64,26 +72,38 @@ paths:
                   role: { type: string, enum: [host, student] }
                   host: { oneOf: [{ $ref: '#/components/schemas/Host' }, { type: 'null' }] }
         '403': { $ref: '#/components/responses/Error' }
-
-  /hosts:
-    get:
-      tags: [public]
-      security: []
-      summary: 主催者一覧(公開情報)
+    delete:
+      tags: [student, host]
+      summary: 退会(アカウントと全データの削除)
+      description: |
+        確認文字列が必要(主催者は URL 名、生徒はメールアドレス)。
+        主催者: 今後の予約をすべて休講扱いで取り消して生徒に通知 → 有料契約を即時解約 → Google 連携を失効 → 全データ削除。
+        生徒: 今後の確定予約が残っていると 409 invalid_state。
+        最後にログインアカウント(Supabase Auth)を削除する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm]
+              properties:
+                confirm: { type: string }
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id: { type: string }
-                    displayName: { type: string }
-                    timezone: { type: string }
-                    lessonMinutes: { type: integer }
+                type: object
+                properties:
+                  deletedHost: { type: boolean }
+                  deletedStudent: { type: boolean }
+                  cancelledBookings: { type: integer }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /hosts:
     post:
       tags: [host]
       summary: ログイン中ユーザーを主催者として登録
@@ -96,6 +116,8 @@ paths:
               required: [displayName]
               properties:
                 displayName: { type: string }
+                slug: { type: string, pattern: '^[a-z0-9-]{3,32}$', description: 公開予約ページの URL 名。省略時はランダム }
+                bio: { type: string }
                 timezone: { type: string, default: Asia/Tokyo }
                 lessonMinutes: { type: integer, default: 60 }
                 minLeadMinutes: { type: integer, default: 60 }
@@ -115,6 +137,8 @@ paths:
               type: object
               properties:
                 displayName: { type: string }
+                slug: { type: string, pattern: '^[a-z0-9-]{3,32}$' }
+                bio: { type: string }
                 timezone: { type: string }
                 lessonMinutes: { type: integer }
                 minLeadMinutes: { type: integer }
@@ -393,6 +417,115 @@ paths:
       responses:
         '200': { description: 連携完了(text/plain) }
 
+  /hosts/by-slug/{slug}:
+    get:
+      tags: [public]
+      security: []
+      summary: 公開予約ページ用の主催者情報
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PublicHost' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+  /hosts/{hostId}/public:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [public]
+      security: []
+      summary: 公開情報を id で取得
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/PublicHost' } } } }
+  /hosts/{hostId}/bookings/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    post:
+      tags: [host]
+      summary: 主催者による取り消し(休講)。生徒にメール通知
+      description: 承認待ちの変更要求がある予約は 409 change_request_pending(先に承認/却下する)。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, description: 生徒へのメッセージ }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Booking' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /hosts/{hostId}/billing:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      summary: プラン・上限・今月の利用量・公開 URL
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  plan: { type: string, enum: [free, pro] }
+                  effectivePlan: { type: string, enum: [free, pro] }
+                  planLabel: { type: string }
+                  subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
+                  limits:
+                    type: object
+                    properties:
+                      maxCalendars: { type: [integer, 'null'] }
+                      maxBookingsPerMonth: { type: [integer, 'null'] }
+                      calendarWrite: { type: boolean }
+                  usage:
+                    type: object
+                    properties:
+                      bookingsThisMonth: { type: integer }
+                      calendars: { type: integer }
+                  publicUrl: { type: string }
+  /hosts/{hostId}/billing/checkout:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    post:
+      tags: [host]
+      summary: プロプランの決済ページ URL(Stripe Checkout)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [successUrl, cancelUrl]
+              properties:
+                successUrl: { type: string, format: uri }
+                cancelUrl: { type: string, format: uri }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+  /hosts/{hostId}/billing/portal:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    post:
+      tags: [host]
+      summary: 支払い方法・解約の管理ページ URL(Stripe Customer Portal)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [returnUrl]
+              properties:
+                returnUrl: { type: string, format: uri }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+        '409': { $ref: '#/components/responses/Error' }
+  /billing/webhook:
+    post:
+      tags: [public]
+      security: []
+      summary: Stripe Webhook(生ボディ・Stripe-Signature ヘッダで署名検証)
+      responses:
+        '200': { description: OK }
+        '403': { $ref: '#/components/responses/Error' }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT, description: Supabase Auth の access_token }
@@ -413,7 +546,7 @@ components:
                 properties:
                   code:
                     type: string
-                    enum: [validation, outside_booking_window, late_change_requires_request, forbidden, not_found, slot_unavailable, change_request_pending, invalid_state, calendar_error, internal]
+                    enum: [validation, outside_booking_window, late_change_requires_request, forbidden, not_found, slot_unavailable, change_request_pending, invalid_state, plan_limit, calendar_error, internal]
                   message: { type: string }
                   details: {}
   schemas:
@@ -421,12 +554,25 @@ components:
       type: string
       enum: [request_approval, reschedule_within_two_weeks, pay_cancellation_fee]
       description: 承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う
+    PublicHost:
+      type: object
+      properties:
+        id: { type: string }
+        slug: { type: string }
+        displayName: { type: string }
+        bio: { type: string }
+        timezone: { type: string }
+        lessonMinutes: { type: integer }
     Host:
       type: object
       properties:
         id: { type: string }
         email: { type: string }
         displayName: { type: string }
+        slug: { type: string }
+        bio: { type: string }
+        plan: { type: string, enum: [free, pro] }
+        subscriptionStatus: { type: string, enum: [none, active, past_due, canceled] }
         timezone: { type: string }
         lessonMinutes: { type: integer }
         minLeadMinutes: { type: integer }

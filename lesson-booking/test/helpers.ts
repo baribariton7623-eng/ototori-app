@@ -1,4 +1,9 @@
+import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
 import { FakeCalendarClient } from '../src/calendar/FakeCalendarClient.js';
+import { MemoryEmailSender } from '../src/notify/EmailSender.js';
+import { EmailNotifier } from '../src/notify/EmailNotifier.js';
+import { AccountService, type AccountCleanup } from '../src/services/AccountService.js';
+import { BillingService } from '../src/services/BillingService.js';
 import type { Host, Student, Weekday } from '../src/domain/types.js';
 import { createInMemoryRepositories, type Clock } from '../src/repo/InMemoryRepositories.js';
 import type { Repositories } from '../src/repo/Repository.js';
@@ -24,6 +29,11 @@ export interface TestWorld {
   calendar: FakeCalendarClient;
   availability: AvailabilityService;
   bookings: BookingService;
+  mail: MemoryEmailSender;
+  billingProvider: FakeBillingProvider;
+  billing: BillingService;
+  cleanup: AccountCleanup & { revoked: string[]; deletedAuthUsers: string[] };
+  accounts: AccountService;
   host: Host;
   student: Student;
 }
@@ -34,7 +44,25 @@ export async function setupWorld(): Promise<TestWorld> {
   const repos = createInMemoryRepositories(clock);
   const calendar = new FakeCalendarClient();
   const availability = new AvailabilityService(repos, calendar, clock);
-  const bookings = new BookingService(repos, calendar, availability, clock);
+  const mail = new MemoryEmailSender();
+  const notifier = new EmailNotifier(mail, { serviceName: 'テスト予約', appBaseUrl: 'https://app.example.com' });
+  const bookings = new BookingService(repos, calendar, availability, clock, notifier);
+  const billingProvider = new FakeBillingProvider('https://app.example.com');
+  const billing = new BillingService(repos, billingProvider);
+  const revoked: string[] = [];
+  const deletedAuthUsers: string[] = [];
+  const cleanup = {
+    revoked,
+    deletedAuthUsers,
+    async revokeGoogle(hostId: string) {
+      revoked.push(hostId);
+      await repos.googleCredentials.clear(hostId);
+    },
+    async deleteAuthUser(subject: string) {
+      deletedAuthUsers.push(subject);
+    },
+  };
+  const accounts = new AccountService(repos, bookings, billing, cleanup, clock);
 
   const host = await repos.hosts.create({
     email: 'teacher@example.com',
@@ -56,7 +84,7 @@ export async function setupWorld(): Promise<TestWorld> {
   await repos.hostCalendars.add({ hostId: host.id, calendarId: 'private@group.calendar.google.com', label: '私用', role: 'busy_source' });
 
   const student = await repos.students.create({ email: 'student@example.com', name: '生徒B' });
-  return { clock, repos, calendar, availability, bookings, host, student };
+  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, host, student };
 }
 
 /** JST のローカル日時を UTC Date に */

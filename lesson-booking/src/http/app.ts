@@ -19,6 +19,7 @@ import {
 import { isValidTimeString, timeStringToMinutes } from '../domain/time.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
+import type { AccountService } from '../services/AccountService.js';
 import type { AvailabilityService } from '../services/AvailabilityService.js';
 import type { BillingService } from '../services/BillingService.js';
 import type { BookingService } from '../services/BookingService.js';
@@ -30,6 +31,7 @@ export interface AppDeps {
   availability: AvailabilityService;
   bookings: BookingService;
   billing: BillingService;
+  accounts: AccountService;
   /** FakeBillingProvider のとき true(開発用の即時有効化エンドポイントを出す) */
   fakeBilling: boolean;
   clock: Clock;
@@ -42,6 +44,9 @@ export interface AppDeps {
   /** フロントエンド(web/dist)のパス。存在すれば静的配信する */
   staticDir?: string | undefined;
 }
+
+/** index.html を返す実パス(フロントの App が pathname で画面を出し分ける) */
+export const SPA_PATHS = ['/terms', '/privacy', '/tokushoho'];
 
 // ---------- 入力スキーマ ----------
 
@@ -63,6 +68,8 @@ const billingUrlsSchema = z.object({
   cancelUrl: z.url(),
 });
 const returnUrlSchema = z.object({ returnUrl: z.url() });
+const hostCancelSchema = z.object({ reason: z.string().trim().min(1, '生徒へのメッセージを入力してください').max(2000) });
+const deleteAccountSchema = z.object({ confirm: z.string().trim().min(1) });
 
 const addCalendarSchema = z.object({
   calendarId: z.string().trim().min(1),
@@ -144,13 +151,32 @@ export function createApp(deps: AppDeps): express.Express {
     res.json({ email: p.email, name: p.name, role: p.host ? 'host' : 'student', host: p.host });
   });
 
+  /**
+   * 退会。誤操作防止のため確認文字列を要求する(主催者は URL 名、生徒はメールアドレス)。
+   */
+  app.delete('/me', wrap(async (req, res) => {
+    const p = requirePrincipal(req);
+    const body = deleteAccountSchema.parse(req.body ?? {});
+    const expected = p.host ? p.host.slug : p.email;
+    if (body.confirm.toLowerCase() !== expected.toLowerCase()) {
+      throw new DomainError('validation', p.host ? '確認のため URL 名を正しく入力してください' : '確認のためメールアドレスを正しく入力してください', {
+        field: 'confirm',
+      });
+    }
+    const result = await deps.accounts.deleteAccount({ email: p.email, subject: p.subject, host: p.host });
+    res.json(result);
+  }));
+
   app.use(hostRoutes(deps));
   app.use(publicRoutes(deps));
   app.use(studentRoutes(deps));
   app.use(googleRoutes(deps));
 
   if (deps.staticDir && existsSync(path.join(deps.staticDir, 'index.html'))) {
+    const indexHtml = path.join(deps.staticDir, 'index.html');
     app.use(express.static(deps.staticDir));
+    // 法務ページは Google OAuth 審査・特商法表記のためハッシュではなく実パスで公開する
+    app.get(SPA_PATHS, (_req, res) => res.sendFile(indexHtml));
   }
 
   app.use((_req, res) => {
@@ -288,6 +314,13 @@ function hostRoutes(deps: AppDeps): Router {
   r.post('/hosts/:hostId/bookings/:id/fee-paid', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     res.json(await deps.bookings.markFeePaid(param(req, 'id'), host.id));
+  }));
+
+  // 主催者による取り消し(休講)。生徒へのメッセージ必須
+  r.post('/hosts/:hostId/bookings/:id/cancel', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const body = hostCancelSchema.parse(req.body);
+    res.json(await deps.bookings.cancelByHost(param(req, 'id'), host.id, body.reason));
   }));
 
   // ---- 課金・プラン ----
@@ -450,7 +483,8 @@ function googleRoutes(deps: AppDeps): Router {
 
   r.delete('/hosts/:hostId/google', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
-    await deps.repos.googleCredentials.clear(host.id);
+    if (google) await google.revoke(host.id);
+    else await deps.repos.googleCredentials.clear(host.id);
     res.status(204).end();
   }));
 

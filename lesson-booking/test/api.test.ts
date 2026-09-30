@@ -30,6 +30,7 @@ beforeAll(async () => {
     availability: w.availability,
     bookings: w.bookings,
     billing: new BillingService(w.repos, new FakeBillingProvider('http://localhost')),
+    accounts: w.accounts,
     fakeBilling: true,
     clock: w.clock,
     auth: { mode: 'dev' },
@@ -235,5 +236,40 @@ describe('複数主催者・課金 API', () => {
     expect(r.status).toBe(403);
     const r2 = await call('POST', `/hosts/${w.host.id}/availability-windows`, TEACHER2, { weekday: 0, startTime: '09:00', endTime: '10:00' });
     expect(r2.status).toBe(403);
+  });
+});
+
+describe('休講・退会 API', () => {
+  const S2 = { 'x-dev-user-email': 'student2@example.com' };
+  const T3 = { 'x-dev-user-email': 'teacher3@example.com' };
+
+  it('講師は予約を休講にできる(メッセージ必須)', async () => {
+    const created = await call('POST', '/bookings', S2, { hostId: w.host.id, startAt: jst('2026-10-27T10:00:00').toISOString() });
+    expect(created.status).toBe(201);
+    const noReason = await call('POST', `/hosts/${w.host.id}/bookings/${created.json.id}/cancel`, TEACHER, { reason: '' });
+    expect(noReason.status).toBe(400);
+    const byStudent = await call('POST', `/hosts/${w.host.id}/bookings/${created.json.id}/cancel`, S2, { reason: 'x' });
+    expect(byStudent.status).toBe(403);
+    const ok = await call('POST', `/hosts/${w.host.id}/bookings/${created.json.id}/cancel`, TEACHER, { reason: '学会出張のため' });
+    expect(ok.status).toBe(200);
+    expect(ok.json.status).toBe('cancelled');
+  });
+
+  it('退会は確認文字列が一致しないと拒否。生徒はメール、講師は URL 名', async () => {
+    const bad = await call('DELETE', '/me', S2, { confirm: 'wrong@example.com' });
+    expect(bad.status).toBe(400);
+    const ok = await call('DELETE', '/me', S2, { confirm: 'student2@example.com' });
+    expect(ok.status).toBe(200);
+    expect(ok.json.deletedStudent).toBe(true);
+
+    const reg = await call('POST', '/hosts', T3, { displayName: '講師D', slug: 'teacher-d' });
+    expect(reg.status).toBe(201);
+    const badHost = await call('DELETE', '/me', T3, { confirm: 'teacher3@example.com' });
+    expect(badHost.status).toBe(400);
+    const okHost = await call('DELETE', '/me', T3, { confirm: 'teacher-d' });
+    expect(okHost.status).toBe(200);
+    expect(okHost.json.deletedHost).toBe(true);
+    expect((await call('GET', '/hosts/by-slug/teacher-d', {})).status).toBe(404);
+    expect((await call('GET', '/me', T3)).json.role).toBe('student');
   });
 });

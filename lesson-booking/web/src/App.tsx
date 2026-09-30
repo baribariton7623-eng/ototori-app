@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { isSignedIn, onAuthChange, signOut } from './api/auth';
 import { ApiError, api } from './api/client';
 import type { Host, Me, Rules } from './api/types';
-import { ErrorBanner, Modal, Spinner } from './components/ui';
+import { Footer } from './components/Footer';
+import { ErrorBanner, Modal, Notice, Spinner } from './components/ui';
+import { PrivacyPage, TermsPage, TokushohoPage } from './legal/LegalPages';
 import { BecomeHostScreen } from './screens/BecomeHostScreen';
 import { BookScreen } from './screens/BookScreen';
 import { HostScreen } from './screens/HostScreen';
@@ -12,6 +14,7 @@ import { MyBookingsScreen } from './screens/MyBookingsScreen';
 import { StudentHomeScreen } from './screens/StudentHomeScreen';
 
 type Route =
+  | { name: 'legal'; page: 'terms' | 'privacy' | 'tokushoho' }
   | { name: 'home' }
   | { name: 'host-page'; slug: string }
   | { name: 'mine' }
@@ -19,6 +22,9 @@ type Route =
   | { name: 'become-host' };
 
 function readRoute(): Route {
+  // 法務ページは実パス(/terms 等)。Google OAuth 審査や特商法表記の URL として使う
+  const p = window.location.pathname.replace(/\/+$/, '');
+  if (p === '/terms' || p === '/privacy' || p === '/tokushoho') return { name: 'legal', page: p.slice(1) as 'terms' | 'privacy' | 'tokushoho' };
   const h = window.location.hash.replace(/^#\/?/, '');
   const m = /^h\/([^/?#]+)/.exec(h);
   if (m?.[1]) return { name: 'host-page', slug: decodeURIComponent(m[1]) };
@@ -36,6 +42,7 @@ export function App() {
   const [error, setError] = useState<unknown>(null);
   const [bookingsKey, setBookingsKey] = useState(0);
   const [showLogin, setShowLogin] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -63,12 +70,24 @@ export function App() {
   }, [refreshSession]);
 
   const go = (hash: string) => {
+    if (window.location.pathname !== '/') {
+      window.location.href = `/#${hash}`;
+      return;
+    }
     window.location.hash = hash;
+  };
+  const onDeleted = () => {
+    void signOut().then(async () => {
+      setFlash('退会しました。ご利用ありがとうございました。');
+      go('/');
+      await refreshSession();
+    });
   };
   const onHostUpdated = (h: Host) => setMe((m) => (m ? { ...m, host: h, role: 'host' } : m));
   const openLogin = () => setShowLogin(true);
   const onLoggedIn = () => {
     setShowLogin(false);
+    setFlash(null);
     void refreshSession();
   };
 
@@ -85,16 +104,18 @@ export function App() {
 
   // 画面の決定
   let content: React.ReactNode;
-  if (route.name === 'host-page') {
+  if (route.name === 'legal') {
+    content = route.page === 'terms' ? <TermsPage /> : route.page === 'privacy' ? <PrivacyPage /> : <TokushohoPage />;
+  } else if (route.name === 'host-page') {
     content = (
       <BookScreen slug={route.slug} rules={rules} signedIn={signedIn} onRequireLogin={openLogin} onBooked={() => setBookingsKey((k) => k + 1)} />
     );
   } else if (!signedIn) {
-    content = <LandingScreen onLogin={openLogin} />;
+    content = <LandingScreen rules={rules} onLogin={openLogin} />;
   } else if (isHost) {
-    content = me?.host ? <HostScreen host={me.host} rules={rules} onHostUpdated={onHostUpdated} /> : null;
+    content = me?.host ? <HostScreen host={me.host} rules={rules} onHostUpdated={onHostUpdated} onDeleted={onDeleted} /> : null;
   } else if (route.name === 'mine') {
-    content = <MyBookingsScreen rules={rules} refreshKey={bookingsKey} />;
+    content = <MyBookingsScreen rules={rules} refreshKey={bookingsKey} email={me?.email ?? ''} onDeleted={onDeleted} />;
   } else if (route.name === 'become-host' || route.name === 'host') {
     content = (
       <BecomeHostScreen
@@ -112,7 +133,7 @@ export function App() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-between gap-2">
-          <a href={isHost ? '#/host' : '#/'} className="font-semibold whitespace-nowrap">
+          <a href={isHost ? '/#/host' : '/#/'} className="font-semibold whitespace-nowrap">
             レッスン予約
             {isHost && <span className="ml-2 text-xs font-normal text-stone-500">主催者: {me?.host?.displayName}</span>}
           </a>
@@ -125,7 +146,7 @@ export function App() {
               </>
             )}
             {isHost && me?.host && (
-              <a className="whitespace-nowrap rounded-md px-2 py-1 text-stone-700 hover:bg-stone-100" href={`#/h/${me.host.slug}`}>公開ページ</a>
+              <a className="whitespace-nowrap rounded-md px-2 py-1 text-stone-700 hover:bg-stone-100" href={`/#/h/${me.host.slug}`}>公開ページ</a>
             )}
             {signedIn ? (
               <button type="button" className="ml-1 whitespace-nowrap text-xs text-stone-500 underline" onClick={() => signOut().then(() => refreshSession())} title={me?.email}>
@@ -142,8 +163,15 @@ export function App() {
 
       <main className="max-w-3xl mx-auto p-4 space-y-4">
         <ErrorBanner error={error} onClose={() => setError(null)} />
+        {flash && (
+          <Notice tone="success">
+            {flash}
+            <button type="button" className="ml-2 underline text-xs" onClick={() => setFlash(null)}>閉じる</button>
+          </Notice>
+        )}
         {content}
       </main>
+      <Footer />
 
       {showLogin && (
         <Modal title="ログイン" onClose={() => setShowLogin(false)}>

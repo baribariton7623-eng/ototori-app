@@ -9,6 +9,7 @@ export function BecomeHostScreen({ onRegistered }: { onRegistered: (h: Host) => 
   const [slug, setSlug] = useState('');
   const [bio, setBio] = useState('');
   const [lessonMinutes, setLessonMinutes] = useState(60);
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
@@ -46,8 +47,15 @@ export function BecomeHostScreen({ onRegistered }: { onRegistered: (h: Host) => 
         <label className="label" htmlFor="bh-len">レッスン長(分)</label>
         <input id="bh-len" className="input" type="number" min={5} step={5} value={lessonMinutes} onChange={(e) => setLessonMinutes(Number(e.target.value))} />
       </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-1" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+        <span>
+          <a className="underline" href="/terms" target="_blank" rel="noreferrer">利用規約</a>と
+          <a className="underline" href="/privacy" target="_blank" rel="noreferrer">プライバシーポリシー</a>に同意します
+        </span>
+      </label>
       <ErrorBanner error={error} onClose={() => setError(null)} />
-      <button type="submit" className="btn-primary w-full" disabled={busy}>登録する</button>
+      <button type="submit" className="btn-primary w-full" disabled={busy || !agreed}>登録する</button>
     </form>
   );
 }

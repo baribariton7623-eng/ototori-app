@@ -77,6 +77,14 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     async list() {
       return hosts.all();
     },
+    async delete(id) {
+      hosts.rows.delete(id);
+      for (const c of calendars.all()) if (c.hostId === id) calendars.rows.delete(c.id);
+      for (const w of windows.all()) if (w.hostId === id) windows.rows.delete(w.id);
+      for (const b of bookings.all()) if (b.hostId === id) bookings.rows.delete(b.id);
+      for (const c of changes.all()) if (c.hostId === id) changes.rows.delete(c.id);
+      tokens.delete(id);
+    },
   };
 
   const calendarRepo: HostCalendarRepository = {
@@ -115,6 +123,11 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     },
     async create(input) {
       return students.insert({ ...input, createdAt: clock.now().toISOString() });
+    },
+    async delete(id) {
+      students.rows.delete(id);
+      for (const b of bookings.all()) if (b.studentId === id) bookings.rows.delete(b.id);
+      for (const c of changes.all()) if (c.studentId === id) changes.rows.delete(c.id);
     },
   };
 

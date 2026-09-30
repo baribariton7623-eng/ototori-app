@@ -15,6 +15,12 @@ const schema = z.object({
   WEB_DIST: z.string().default('web/dist'),
   /** フロントエンドの公開 URL(末尾スラッシュなし)。公開予約ページ URL・課金のリダイレクト先に使う */
   APP_BASE_URL: z.string().default('http://localhost:8787'),
+  SERVICE_NAME: z.string().default('レッスン予約'),
+  /** console: 標準出力に出すだけ / resend: Resend で送信 */
+  MAIL: z.enum(['console', 'resend']).default('console'),
+  RESEND_API_KEY: z.string().default(''),
+  /** 例: "レッスン予約 <noreply@example.com>"。ドメインは Resend で認証済みであること */
+  MAIL_FROM: z.string().default(''),
   BILLING: z.enum(['fake', 'stripe']).default('fake'),
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
@@ -34,6 +40,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (cfg.CALENDAR === 'google') {
     if (!cfg.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
     if (!cfg.GOOGLE_CLIENT_SECRET) missing.push('GOOGLE_CLIENT_SECRET');
+  }
+  if (cfg.MAIL === 'resend') {
+    if (!cfg.RESEND_API_KEY) missing.push('RESEND_API_KEY');
+    if (!cfg.MAIL_FROM) missing.push('MAIL_FROM');
   }
   if (cfg.BILLING === 'stripe') {
     for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_ID_PRO'] as const) if (!cfg[k]) missing.push(k);

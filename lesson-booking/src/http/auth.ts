@@ -8,6 +8,8 @@ import type { Repositories } from '../repo/Repository.js';
 export interface Principal {
   email: string;
   name: string;
+  /** ログイン基盤上のユーザー ID(Supabase JWT の sub)。dev モードでは null */
+  subject: string | null;
   host: Host | null;
 }
 
@@ -30,7 +32,7 @@ export function authMiddleware(repos: Repositories, auth: AuthMode) {
       const identity = auth.mode === 'dev' ? devIdentity(req) : await supabaseIdentity(req, auth.jwtSecret);
       if (!identity) return next();
       const host = await repos.hosts.findByEmail(identity.email);
-      req.principal = { email: identity.email, name: identity.name, host };
+      req.principal = { email: identity.email, name: identity.name, subject: identity.subject, host };
       next();
     } catch (e) {
       next(e);
@@ -38,10 +40,16 @@ export function authMiddleware(repos: Repositories, auth: AuthMode) {
   };
 }
 
-function devIdentity(req: Request): { email: string; name: string } | null {
+interface Identity {
+  email: string;
+  name: string;
+  subject: string | null;
+}
+
+function devIdentity(req: Request): Identity | null {
   const email = header(req, 'x-dev-user-email');
   if (!email) return null;
-  return { email: email.toLowerCase(), name: safeDecode(header(req, 'x-dev-user-name') ?? '') };
+  return { email: email.toLowerCase(), name: safeDecode(header(req, 'x-dev-user-name') ?? ''), subject: null };
 }
 
 /** ヘッダは Latin-1 しか載せられないため、日本語名は URL エンコードして渡す */
@@ -53,7 +61,7 @@ function safeDecode(v: string): string {
   }
 }
 
-async function supabaseIdentity(req: Request, secret: string): Promise<{ email: string; name: string } | null> {
+async function supabaseIdentity(req: Request, secret: string): Promise<Identity | null> {
   const authz = header(req, 'authorization');
   if (!authz?.startsWith('Bearer ')) return null;
   const token = authz.slice('Bearer '.length).trim();
@@ -63,7 +71,7 @@ async function supabaseIdentity(req: Request, secret: string): Promise<{ email: 
     if (!email) throw new DomainError('forbidden', 'トークンに email が含まれていません');
     const meta = (payload.user_metadata ?? {}) as Record<string, unknown>;
     const name = typeof meta.full_name === 'string' ? meta.full_name : typeof meta.name === 'string' ? meta.name : '';
-    return { email, name };
+    return { email, name, subject: typeof payload.sub === 'string' ? payload.sub : null };
   } catch (e) {
     if (e instanceof DomainError) throw e;
     throw new DomainError('forbidden', '認証トークンが無効です');

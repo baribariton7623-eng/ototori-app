@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { AvailabilityWindow, BillingInfo, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
-import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
+import { DeleteAccount } from '../components/DeleteAccount';
+import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../components/ui';
 import { WEEKDAY_JA, fmtFull, fmtRange } from '../lib/format';
 
 type Tab = 'requests' | 'bookings' | 'settings';
 
 /** 主催者: 承認待ちの処理・予約一覧・設定(営業時間枠・カレンダー・Google 連携) */
-export function HostScreen({ host, rules, onHostUpdated }: { host: Host; rules: Rules; onHostUpdated: (h: Host) => void }) {
+export function HostScreen({
+  host,
+  rules,
+  onHostUpdated,
+  onDeleted,
+}: {
+  host: Host;
+  rules: Rules;
+  onHostUpdated: (h: Host) => void;
+  onDeleted: () => void;
+}) {
   const [tab, setTab] = useState<Tab>('requests');
   const [pendingCount, setPendingCount] = useState<number | null>(null);
 
@@ -37,7 +48,7 @@ export function HostScreen({ host, rules, onHostUpdated }: { host: Host; rules: 
       </nav>
       {tab === 'requests' && <RequestsTab host={host} rules={rules} />}
       {tab === 'bookings' && <BookingsTab host={host} />}
-      {tab === 'settings' && <SettingsTab host={host} rules={rules} onHostUpdated={onHostUpdated} />}
+      {tab === 'settings' && <SettingsTab host={host} rules={rules} onHostUpdated={onHostUpdated} onDeleted={onDeleted} />}
     </div>
   );
 }
@@ -135,6 +146,26 @@ function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
 function BookingsTab({ host }: { host: Host }) {
   const [list, setList] = useState<HostBooking[] | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [cancelTarget, setCancelTarget] = useState<HostBooking | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [cancelError, setCancelError] = useState<unknown>(null);
+
+  async function submitCancel() {
+    if (!cancelTarget) return;
+    setBusy(true);
+    setCancelError(null);
+    try {
+      await api.cancelByHost(host.id, cancelTarget.id, reason.trim());
+      setCancelTarget(null);
+      setReason('');
+      await load();
+    } catch (e) {
+      setCancelError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const load = useCallback(() => api.hostBookings(host.id).then(setList).catch(setError), [host.id]);
   useEffect(() => {
@@ -158,9 +189,41 @@ function BookingsTab({ host }: { host: Host }) {
             <div className="text-sm text-stone-600">{b.student?.name || '(名前なし)'} <span className="text-xs">{b.student?.email}</span></div>
             {b.note && <div className="text-xs text-stone-500">備考: {b.note}</div>}
           </div>
-          <Badge tone="green">確定</Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge tone="green">確定</Badge>
+            <button type="button" className="text-xs text-red-700 underline" onClick={() => setCancelTarget(b)}>休講にする</button>
+          </div>
         </div>
       ))}
+      {cancelTarget && (
+        <Modal title="休講にする" onClose={() => setCancelTarget(null)}>
+          <div className="space-y-3">
+            <div className="text-sm">
+              <div className="text-xs text-stone-500">対象</div>
+              <div className="font-medium">{fmtRange(cancelTarget.startAt, cancelTarget.endAt)}</div>
+              <div className="text-stone-600">{cancelTarget.student?.name || cancelTarget.student?.email}</div>
+            </div>
+            <Notice tone="warn">予約を取り消し、生徒にメールで知らせます。Google カレンダーのイベントも削除されます。</Notice>
+            <div>
+              <label className="label" htmlFor="cancel-reason">生徒へのメッセージ(必須)</label>
+              <textarea
+                id="cancel-reason"
+                className="input min-h-24"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="例: 体調不良のため休講とさせてください。振替は予約ページからお選びください。"
+              />
+            </div>
+            <ErrorBanner error={cancelError} onClose={() => setCancelError(null)} />
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setCancelTarget(null)}>戻る</button>
+              <button type="button" className="btn-danger" disabled={busy || !reason.trim()} onClick={submitCancel}>
+                {busy ? '処理中…' : '休講にする'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {others.length > 0 && (
         <>
           <h2 className="font-semibold text-stone-600 pt-2">過去・キャンセル</h2>
@@ -193,7 +256,17 @@ function BookingsTab({ host }: { host: Host }) {
 
 // ---------- 設定 ----------
 
-function SettingsTab({ host, rules, onHostUpdated }: { host: Host; rules: Rules; onHostUpdated: (h: Host) => void }) {
+function SettingsTab({
+  host,
+  rules,
+  onHostUpdated,
+  onDeleted,
+}: {
+  host: Host;
+  rules: Rules;
+  onHostUpdated: (h: Host) => void;
+  onDeleted: () => void;
+}) {
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(null);
   const [calendars, setCalendars] = useState<HostCalendar[] | null>(null);
   const [google, setGoogle] = useState<{ connected: boolean } | null>(null);
@@ -465,6 +538,18 @@ function SettingsTab({ host, rules, onHostUpdated }: { host: Host; rules: Rules;
           <button type="submit" className="btn-secondary col-span-2 sm:col-span-1">追加</button>
         </form>
       </section>
+
+      <DeleteAccount
+        confirmText={host.slug}
+        confirmLabel="URL 名"
+        description={[
+          '今後の予約はすべて取り消され、生徒に休講のメールが届きます。',
+          'プロプランは即時に解約されます(日割りの返金はありません)。',
+          'Google カレンダーの連携を解除し、設定・予約履歴を含むすべての情報を削除します。',
+          '予約ページの URL は使えなくなります。',
+        ]}
+        onDeleted={onDeleted}
+      />
     </div>
   );
 }

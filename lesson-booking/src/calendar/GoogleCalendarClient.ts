@@ -47,6 +47,22 @@ export class GoogleCalendarClient implements CalendarClient {
     await this.credentials.saveRefreshToken(hostId, tokens.refresh_token);
   }
 
+  /**
+   * 連携解除・退会時: Google 側のトークンを失効させ、保存済みの refresh token を削除する。
+   * 失効 API の失敗(既に失効済みなど)は無視し、ローカルの削除は必ず行う。
+   */
+  async revoke(hostId: string): Promise<void> {
+    const token = await this.credentials.getRefreshToken(hostId);
+    if (token) {
+      try {
+        await this.newOAuthClient().revokeToken(token);
+      } catch (e) {
+        console.warn('[google] トークンの失効に失敗しました(既に失効済みの可能性)', e instanceof Error ? e.message : e);
+      }
+    }
+    await this.credentials.clear(hostId);
+  }
+
   async freeBusy(hostId: string, calendarIds: readonly string[], from: Date, to: Date): Promise<BusyInterval[]> {
     if (calendarIds.length === 0) return [];
     const api = await this.api(hostId);

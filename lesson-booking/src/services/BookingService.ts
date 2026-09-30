@@ -9,9 +9,12 @@ import {
   validateLateChangeRequest,
 } from '../domain/rules.js';
 import type { Booking, ChangeKind, ChangeRequest, Host, LateChangeOption, Student } from '../domain/types.js';
+import { noopNotifier, safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
 import type { AvailabilityService } from './AvailabilityService.js';
+
+export type { Notifier } from '../notify/Notifier.js';
 
 export interface CreateBookingInput {
   hostId: string;
@@ -34,21 +37,6 @@ export interface ChangeInput {
 export type ChangeOutcome =
   | { type: 'applied'; booking: Booking }
   | { type: 'pending_approval'; booking: Booking; request: ChangeRequest };
-
-/** 通知フック。メール等は未実装で、呼び出しポイントだけ用意している */
-export interface Notifier {
-  bookingCreated(booking: Booking, host: Host, student: Student): Promise<void>;
-  bookingChanged(booking: Booking, host: Host, student: Student, kind: ChangeKind): Promise<void>;
-  changeRequested(request: ChangeRequest, booking: Booking, host: Host, student: Student): Promise<void>;
-  changeDecided(request: ChangeRequest, booking: Booking, host: Host, student: Student): Promise<void>;
-}
-
-export const noopNotifier: Notifier = {
-  async bookingCreated() {},
-  async bookingChanged() {},
-  async changeRequested() {},
-  async changeDecided() {},
-};
 
 export class BookingService {
   constructor(
@@ -88,7 +76,8 @@ export class BookingService {
     const eventId = await this.writeCalendarEvent(host, booking, input.student);
     if (eventId) booking = await this.repos.bookings.update(booking.id, { calendarEventId: eventId });
 
-    await this.notifier.bookingCreated(booking, host, input.student);
+    const created = booking;
+    await safeNotify(() => this.notifier.bookingCreated({ host, student: input.student, booking: created }));
     return booking;
   }
 
@@ -137,8 +126,11 @@ export class BookingService {
       // 猶予あり → 即時反映
       const updated =
         input.kind === 'cancel'
-          ? await this.applyCancel(host, booking, input.student, 'none')
-          : await this.applyReschedule(host, booking, input.student, input.proposedStartAt as Date);
+          ? await this.applyCancel(host, booking, 'none')
+          : await this.applyReschedule(host, booking, input.proposedStartAt as Date);
+      await safeNotify(() =>
+        this.notifier.bookingChanged({ host, student: input.student, kind: input.kind, before: booking, after: updated }),
+      );
       return { type: 'applied', booking: updated };
     }
 
@@ -170,7 +162,7 @@ export class BookingService {
       status: 'pending',
       decisionNote: null,
     });
-    await this.notifier.changeRequested(request, booking, host, input.student);
+    await safeNotify(() => this.notifier.changeRequested({ host, student: input.student, request, booking }));
     return { type: 'pending_approval', booking, request };
   }
 
@@ -204,28 +196,29 @@ export class BookingService {
         decisionNote: note?.trim() || null,
         decidedAt: now,
       });
-      await this.notifier.changeDecided(rejected, booking, host, student);
+      await safeNotify(() => this.notifier.changeDecided({ host, student, request: rejected, before: booking, after: booking }));
       return { request: rejected, booking };
     }
 
     let updated: Booking;
     if (request.kind === 'cancel') {
       const fee = request.option === 'pay_cancellation_fee' ? 'pending' : 'none';
-      updated = await this.applyCancel(host, booking, student, fee);
+      updated = await this.applyCancel(host, booking, fee);
     } else {
       if (!request.proposedStartAt) throw new DomainError('invalid_state', '振替先日時がありません');
       const proposed = new Date(request.proposedStartAt);
       if (!isWithinRescheduleRange(new Date(booking.startAt), proposed)) {
         throw new DomainError('validation', '振替先が範囲外です');
       }
-      updated = await this.applyReschedule(host, booking, student, proposed);
+      updated = await this.applyReschedule(host, booking, proposed);
     }
     const approved = await this.repos.changeRequests.update(request.id, {
       status: 'approved',
       decisionNote: note?.trim() || null,
       decidedAt: now,
     });
-    await this.notifier.changeDecided(approved, updated, host, student);
+    const after = updated;
+    await safeNotify(() => this.notifier.changeDecided({ host, student, request: approved, before: booking, after }));
     return { request: approved, booking: updated };
   }
 
@@ -238,28 +231,88 @@ export class BookingService {
     return this.repos.bookings.update(booking.id, { cancellationFeeStatus: 'paid' });
   }
 
+  // ---------- 主催者によるキャンセル(休講) ----------
+
+  /**
+   * 主催者が予約を取り消す。生徒にはメッセージ(reason)付きで通知する。
+   * 承認待ちの変更要求がある予約は、先にその要求を判断してもらう(二重処理を避ける)。
+   */
+  async cancelByHost(bookingId: string, hostId: string, reason: string): Promise<Booking> {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new DomainError('validation', '生徒へのメッセージを入力してください', { field: 'reason' });
+    const booking = await this.getBookingForHost(bookingId, hostId);
+    if (booking.status !== 'confirmed') throw new DomainError('invalid_state', 'この予約は既にキャンセルされています');
+    if (new Date(booking.startAt).getTime() <= this.clock.now().getTime()) {
+      throw new DomainError('invalid_state', '開始済み・終了済みのレッスンはキャンセルできません');
+    }
+    const pending = await this.repos.changeRequests.findPendingByBooking(booking.id);
+    if (pending) {
+      throw new DomainError('change_request_pending', 'この予約には生徒からの承認待ちの申請があります。先に承認または却下してください', {
+        requestId: pending.id,
+      });
+    }
+    return this.cancelByHostUnchecked(booking, trimmed, { bestEffortCalendar: false });
+  }
+
+  /**
+   * 退会処理などで、主催者の今後の予約をすべて取り消す。
+   * 承認待ちの要求は却下扱いにし、カレンダー削除の失敗は無視する(連携が既に切れている場合がある)。
+   */
+  async cancelAllFutureByHost(hostId: string, reason: string): Promise<Booking[]> {
+    const now = this.clock.now();
+    const far = new Date(now.getTime() + 3650 * 86_400_000);
+    const future = await this.repos.bookings.listConfirmedByHost(hostId, now, far);
+    const out: Booking[] = [];
+    for (const b of future) {
+      if (new Date(b.startAt).getTime() <= now.getTime()) continue;
+      const pending = await this.repos.changeRequests.findPendingByBooking(b.id);
+      if (pending) {
+        await this.repos.changeRequests.update(pending.id, {
+          status: 'rejected',
+          decisionNote: reason,
+          decidedAt: now.toISOString(),
+        });
+      }
+      out.push(await this.cancelByHostUnchecked(b, reason, { bestEffortCalendar: true }));
+    }
+    return out;
+  }
+
+  private async cancelByHostUnchecked(booking: Booking, reason: string, opts: { bestEffortCalendar: boolean }): Promise<Booking> {
+    const host = await this.availability.getHost(booking.hostId);
+    const updated = await this.applyCancel(host, booking, 'none', opts);
+    const student = await this.repos.students.findById(booking.studentId);
+    if (student) {
+      await safeNotify(() => this.notifier.cancelledByHost({ host, student, booking: updated, reason }));
+    }
+    return updated;
+  }
+
   // ---------- 内部 ----------
 
   private async applyCancel(
     host: Host,
     booking: Booking,
-    student: Student,
     fee: Booking['cancellationFeeStatus'],
+    opts: { bestEffortCalendar: boolean } = { bestEffortCalendar: false },
   ): Promise<Booking> {
     const target = await this.writeTargetCalendar(host.id);
     if (booking.calendarEventId && target) {
-      await this.calendar.deleteEvent(host.id, target, booking.calendarEventId);
+      try {
+        await this.calendar.deleteEvent(host.id, target, booking.calendarEventId);
+      } catch (e) {
+        if (!opts.bestEffortCalendar) throw e;
+        console.warn('[booking] カレンダーイベントの削除に失敗しましたが処理を続行します', e);
+      }
     }
-    const updated = await this.repos.bookings.update(booking.id, {
+    return this.repos.bookings.update(booking.id, {
       status: 'cancelled',
       calendarEventId: null,
       cancellationFeeStatus: fee,
     });
-    await this.notifier.bookingChanged(updated, host, student, 'cancel');
-    return updated;
   }
 
-  private async applyReschedule(host: Host, booking: Booking, student: Student, newStart: Date): Promise<Booking> {
+  private async applyReschedule(host: Host, booking: Booking, newStart: Date): Promise<Booking> {
     const now = this.clock.now();
     assertWithinBookingWindow(newStart, now, host.minLeadMinutes);
     if (!(await this.availability.isSlotAvailable(host, newStart, booking.id))) {
@@ -274,12 +327,10 @@ export class BookingService {
         timezone: host.timezone,
       });
     }
-    const updated = await this.repos.bookings.update(booking.id, {
+    return this.repos.bookings.update(booking.id, {
       startAt: newStart.toISOString(),
       endAt: newEnd.toISOString(),
     });
-    await this.notifier.bookingChanged(updated, host, student, 'reschedule');
-    return updated;
   }
 
   /** フリープランの月間予約上限(レッスン日の暦月で数える) */

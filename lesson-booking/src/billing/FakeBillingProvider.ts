@@ -19,6 +19,12 @@ export class FakeBillingProvider implements BillingProvider {
     return `${this.apiBaseUrl}/billing/fake/cancel?${q.toString()}`;
   }
 
+  readonly canceled: string[] = [];
+
+  async cancelImmediately(host: Host): Promise<void> {
+    this.canceled.push(host.id);
+  }
+
   async parseWebhook(rawBody: Buffer): Promise<BillingEvent> {
     return JSON.parse(rawBody.toString('utf8')) as BillingEvent;
   }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { ChangeOutcome, ChangeRequest, Rules, StudentBooking } from '../api/types';
 import { ChangeDialog } from '../components/ChangeDialog';
+import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
 import { fmtFull, fmtRange } from '../lib/format';
 
@@ -11,7 +12,17 @@ const STATUS_JA: Record<ChangeRequest['status'], string> = { pending: '承認待
 const KIND_JA: Record<ChangeRequest['kind'], string> = { cancel: 'キャンセル', reschedule: '日時変更' };
 
 /** 生徒: 自分の予約一覧・キャンセル/変更・申請履歴 */
-export function MyBookingsScreen({ rules, refreshKey }: { rules: Rules; refreshKey: number }) {
+export function MyBookingsScreen({
+  rules,
+  refreshKey,
+  email,
+  onDeleted,
+}: {
+  rules: Rules;
+  refreshKey: number;
+  email: string;
+  onDeleted: () => void;
+}) {
   const [list, setList] = useState<StudentBooking[] | null>(null);
   const [details, setDetails] = useState<Record<string, Detail>>({});
   const [target, setTarget] = useState<StudentBooking | null>(null);
@@ -120,6 +131,16 @@ export function MyBookingsScreen({ rules, refreshKey }: { rules: Rules; refreshK
           ))}
         </section>
       )}
+
+      <DeleteAccount
+        confirmText={email}
+        confirmLabel="メールアドレス"
+        description={[
+          '予約履歴・申請履歴を含むすべての情報が削除されます。',
+          '今後の予約が残っている場合は退会できません。先にキャンセルしてください(開始2週間前を過ぎた予約は講師の承認が必要です)。',
+        ]}
+        onDeleted={onDeleted}
+      />
 
       {target && <ChangeDialog booking={target} rules={rules} onClose={() => setTarget(null)} onDone={onDone} />}
     </div>

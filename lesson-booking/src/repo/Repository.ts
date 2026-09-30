@@ -15,6 +15,8 @@ export interface HostRepository {
   findBySlug(slug: string): Promise<Host | null>;
   findByStripeCustomerId(customerId: string): Promise<Host | null>;
   list(): Promise<Host[]>;
+  /** 主催者と、その主催者に紐づく全データ(カレンダー設定・営業時間枠・予約・変更要求・Google 認可)を削除 */
+  delete(id: string): Promise<void>;
 }
 
 export interface HostCalendarRepository {
@@ -33,6 +35,8 @@ export interface StudentRepository {
   findByEmail(email: string): Promise<Student | null>;
   findById(id: string): Promise<Student | null>;
   create(input: Omit<Student, 'id' | 'createdAt'>): Promise<Student>;
+  /** 生徒と、その生徒の予約・変更要求を削除 */
+  delete(id: string): Promise<void>;
 }
 
 export interface BookingRepository {
