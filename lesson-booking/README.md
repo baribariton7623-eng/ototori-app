@@ -46,12 +46,30 @@ curl -s -H x-dev-user-email:teacher@example.com -H content-type:application/json
   -X POST $B/hosts/$HID/change-requests/$RID/decision -d '{"decision":"approve"}'
 ```
 
+## フロントエンド(web/)
+
+生徒画面(空き枠から予約 / マイ予約 / キャンセル・変更の申請)と主催者画面(承認待ちの処理 / 予約一覧 / 営業時間枠・カレンダー・Google 連携の設定)。React 19 + Vite + Tailwind 4。
+
+```bash
+cd lesson-booking/web
+npm install
+cp .env.example .env      # VITE_AUTH_MODE=dev(バックエンドの AUTH_MODE と合わせる)
+npm run dev               # http://localhost:5174 → API は 8787 へプロキシ
+```
+
+本番は `cd web && npm run build` すると `web/dist` ができ、バックエンドが同じオリジンで静的配信する(`WEB_DIST` 環境変数)。
+`VITE_AUTH_MODE=supabase` のときは Supabase Auth の Google ログインを使う(`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`)。
+
+- 初回は「講師の方」から主催者登録 → 設定タブで営業時間枠と連携カレンダーを登録すると、生徒側に空き枠が出る
+- 開始まで 14 日未満の予約は「変更は承認制」バッジが付き、キャンセル・変更ダイアログでメッセージと 3 択が必須になる
+
 ## スクリプト
 
 - `npm run dev` — 開発サーバー(ファイル変更で再起動)
 - `npm run build` / `npm start` — ビルドして起動
 - `npm test` — vitest(業務ルール・空き枠・予約サービス・API)
 - `npm run typecheck` — 型チェック
+- (web/) `npm run dev` / `npm run build` / `npm run typecheck`
 
 ## 本番構成
 
@@ -75,6 +93,7 @@ curl -s -H x-dev-user-email:teacher@example.com -H content-type:application/json
 ## ディレクトリ
 
 ```
+web/                  フロントエンド(React + Vite)。src/screens が画面、src/api がAPIクライアントと認証
 src/
   domain/        型・業務ルール(40日/14日/振替範囲)・空き枠計算・時刻ヘルパ(純関数)
   services/      AvailabilityService(空き枠) / BookingService(予約・変更要求・承認)
@@ -90,7 +109,6 @@ test/                 vitest
 
 ## 未実装・今後
 
-- フロントエンド(生徒画面・主催者画面) — 画面指針は spec.md §6
 - 通知(メール・LINE 等) — `Notifier` インターフェースに差し込む
 - 決済 — キャンセルフィーは「支払う意思」と「入金確認」のフラグのみ
 - 実 Supabase / 実 Google アカウントでの結合テスト

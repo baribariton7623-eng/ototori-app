@@ -1,0 +1,361 @@
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../api/client';
+import type { AvailabilityWindow, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
+import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
+import { WEEKDAY_JA, fmtFull, fmtRange } from '../lib/format';
+
+type Tab = 'requests' | 'bookings' | 'settings';
+
+/** 主催者: 承認待ちの処理・予約一覧・設定(営業時間枠・カレンダー・Google 連携) */
+export function HostScreen({ host, rules, onHostUpdated }: { host: Host; rules: Rules; onHostUpdated: (h: Host) => void }) {
+  const [tab, setTab] = useState<Tab>('requests');
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    api.changeRequests(host.id, 'pending').then((l) => setPendingCount(l.length)).catch(() => setPendingCount(null));
+  }, [host.id, tab]);
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'requests', label: `承認待ち${pendingCount ? ` (${pendingCount})` : ''}` },
+    { key: 'bookings', label: '予約一覧' },
+    { key: 'settings', label: '設定' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <nav className="flex gap-1 rounded-lg bg-stone-100 p-1" aria-label="主催者メニュー">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium ${tab === t.key ? 'bg-white shadow-sm text-stone-900' : 'text-stone-600'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      {tab === 'requests' && <RequestsTab host={host} rules={rules} />}
+      {tab === 'bookings' && <BookingsTab host={host} />}
+      {tab === 'settings' && <SettingsTab host={host} onHostUpdated={onHostUpdated} />}
+    </div>
+  );
+}
+
+// ---------- 承認待ち ----------
+
+function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
+  const [filter, setFilter] = useState<'pending' | 'all'>('pending');
+  const [list, setList] = useState<HostChangeRequest[] | null>(null);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [error, setError] = useState<unknown>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setList(null);
+    api.changeRequests(host.id, filter).then(setList).catch(setError);
+  }, [host.id, filter]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function decide(r: HostChangeRequest, decision: 'approve' | 'reject') {
+    setBusyId(r.id);
+    setError(null);
+    try {
+      await api.decide(host.id, r.id, decision, notes[r.id]);
+      load();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold">変更・キャンセルの申請</h2>
+        <select className="input w-auto py-1" value={filter} onChange={(e) => setFilter(e.target.value as 'pending' | 'all')} aria-label="表示する申請">
+          <option value="pending">承認待ちのみ</option>
+          <option value="all">すべて</option>
+        </select>
+      </div>
+      <Notice>
+        開始まで{rules.lateChangeThresholdDays}日未満の申請です。承認すると予約がキャンセルまたは振替され、Google カレンダーにも反映されます。却下すると元の予約が維持されます。
+      </Notice>
+      <ErrorBanner error={error} onClose={() => setError(null)} />
+      {list === null && <Spinner />}
+      {list?.length === 0 && <div className="text-sm text-stone-500">申請はありません。</div>}
+      {list?.map((r) => (
+        <div key={r.id} className="card space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-xs text-stone-500">{r.student?.name || r.student?.email} · {fmtFull(r.createdAt)} 申請</div>
+              <div className="font-medium">
+                {r.kind === 'cancel' ? 'キャンセル' : '日時変更'}: {r.booking ? fmtRange(r.booking.startAt, r.booking.endAt) : '(予約なし)'}
+              </div>
+              {r.proposedStartAt && <div className="text-sm">→ 振替希望 <b>{fmtFull(r.proposedStartAt)}</b></div>}
+            </div>
+            <Badge tone={r.status === 'pending' ? 'amber' : r.status === 'approved' ? 'green' : 'red'}>
+              {r.status === 'pending' ? '承認待ち' : r.status === 'approved' ? '承認済み' : '却下'}
+            </Badge>
+          </div>
+          <div className="text-sm">
+            <Badge>{r.optionLabel}</Badge>
+            <p className="mt-1 whitespace-pre-wrap rounded bg-stone-50 p-2">{r.message}</p>
+          </div>
+          {r.status === 'pending' ? (
+            <div className="space-y-2">
+              <input
+                className="input"
+                placeholder="生徒への返信メモ(任意)"
+                value={notes[r.id] ?? ''}
+                onChange={(e) => setNotes({ ...notes, [r.id]: e.target.value })}
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" className="btn-danger" disabled={busyId === r.id} onClick={() => decide(r, 'reject')}>却下</button>
+                <button type="button" className="btn-primary" disabled={busyId === r.id} onClick={() => decide(r, 'approve')}>
+                  {r.kind === 'cancel' ? 'キャンセルを承認' : '振替を承認'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            r.decisionNote && <div className="text-xs text-stone-600">返信メモ: {r.decisionNote}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- 予約一覧 ----------
+
+function BookingsTab({ host }: { host: Host }) {
+  const [list, setList] = useState<HostBooking[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  const load = useCallback(() => api.hostBookings(host.id).then(setList).catch(setError), [host.id]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (list === null) return <Spinner />;
+  const now = Date.now();
+  const upcoming = list.filter((b) => b.status === 'confirmed' && new Date(b.endAt).getTime() > now);
+  const others = list.filter((b) => !upcoming.includes(b)).reverse();
+
+  return (
+    <div className="space-y-3">
+      <ErrorBanner error={error} onClose={() => setError(null)} />
+      <h2 className="font-semibold">今後の予約({upcoming.length})</h2>
+      {upcoming.length === 0 && <div className="text-sm text-stone-500">予約はありません。</div>}
+      {upcoming.map((b) => (
+        <div key={b.id} className="card flex items-start justify-between gap-2">
+          <div>
+            <div className="font-medium">{fmtRange(b.startAt, b.endAt)}</div>
+            <div className="text-sm text-stone-600">{b.student?.name || '(名前なし)'} <span className="text-xs">{b.student?.email}</span></div>
+            {b.note && <div className="text-xs text-stone-500">備考: {b.note}</div>}
+          </div>
+          <Badge tone="green">確定</Badge>
+        </div>
+      ))}
+      {others.length > 0 && (
+        <>
+          <h2 className="font-semibold text-stone-600 pt-2">過去・キャンセル</h2>
+          {others.map((b) => (
+            <div key={b.id} className="card flex items-start justify-between gap-2 opacity-80">
+              <div>
+                <div className="text-sm">{fmtRange(b.startAt, b.endAt)}</div>
+                <div className="text-xs text-stone-600">{b.student?.name || b.student?.email}</div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                {b.status === 'cancelled' ? <Badge tone="red">キャンセル</Badge> : <Badge>終了</Badge>}
+                {b.cancellationFeeStatus === 'pending' && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs py-1"
+                    onClick={() => api.markFeePaid(host.id, b.id).then(load).catch(setError)}
+                  >
+                    フィー入金を確認
+                  </button>
+                )}
+                {b.cancellationFeeStatus === 'paid' && <Badge tone="green">フィー支払済</Badge>}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------- 設定 ----------
+
+function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: Host) => void }) {
+  const [windows, setWindows] = useState<AvailabilityWindow[] | null>(null);
+  const [calendars, setCalendars] = useState<HostCalendar[] | null>(null);
+  const [google, setGoogle] = useState<{ connected: boolean } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+
+  const [form, setForm] = useState({ displayName: host.displayName, lessonMinutes: host.lessonMinutes, minLeadMinutes: host.minLeadMinutes });
+  const [win, setWin] = useState({ weekday: 1, startTime: '10:00', endTime: '18:00' });
+  const [cal, setCal] = useState<{ calendarId: string; label: string; role: HostCalendar['role'] }>({ calendarId: '', label: '', role: 'busy_source' });
+
+  const load = useCallback(() => {
+    api.windows(host.id).then(setWindows).catch(setError);
+    api.calendars(host.id).then(setCalendars).catch(setError);
+    api.googleStatus(host.id).then(setGoogle).catch(() => setGoogle({ connected: false }));
+  }, [host.id]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const run = (p: Promise<unknown>) => p.then(load).catch(setError);
+  const hasWriteTarget = calendars?.some((c) => c.role === 'write_target') ?? false;
+
+  return (
+    <div className="space-y-4">
+      <ErrorBanner error={error} onClose={() => setError(null)} />
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">基本設定</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div>
+            <label className="label" htmlFor="h-name">表示名</label>
+            <input id="h-name" className="input" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
+          </div>
+          <div>
+            <label className="label" htmlFor="h-len">レッスン長(分)</label>
+            <input id="h-len" className="input" type="number" min={5} step={5} value={form.lessonMinutes} onChange={(e) => setForm({ ...form, lessonMinutes: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label className="label" htmlFor="h-lead">受付締切(開始の何分前まで)</label>
+            <input id="h-lead" className="input" type="number" min={0} step={30} value={form.minLeadMinutes} onChange={(e) => setForm({ ...form, minLeadMinutes: Number(e.target.value) })} />
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <button type="button" className="btn-primary" onClick={() => api.updateHost(host.id, form).then(onHostUpdated).catch(setError)}>保存</button>
+        </div>
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">Google カレンダー連携</h2>
+        {google === null ? (
+          <Spinner />
+        ) : google.connected ? (
+          <div className="flex items-center justify-between">
+            <Badge tone="green">連携済み</Badge>
+            <button type="button" className="btn-danger" onClick={() => run(api.googleDisconnect(host.id))}>連携を解除</button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Notice tone="warn">未連携です。連携すると、登録したカレンダーの予定を空き枠から除外し、予約をカレンダーに書き込めます。</Notice>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() =>
+                api
+                  .googleConnectUrl(host.id)
+                  .then(({ url }) => {
+                    window.location.href = url;
+                  })
+                  .catch(setError)
+              }
+            >
+              Google と連携する
+            </button>
+          </div>
+        )}
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">連携カレンダー</h2>
+        <p className="text-xs text-stone-600">
+          「書き込み先」は予約イベントを作成するカレンダー(1件)。「参照のみ」は予定を空き枠から除外するだけのカレンダー(複数可)。どちらも予定がある時間は空き枠から外れます。
+        </p>
+        {calendars === null ? <Spinner /> : (
+          <ul className="divide-y divide-stone-100">
+            {calendars.map((c) => (
+              <li key={c.id} className="flex items-center justify-between py-2 text-sm">
+                <div>
+                  <span className="font-medium">{c.label || c.calendarId}</span>
+                  {c.label && <span className="ml-2 text-xs text-stone-500">{c.calendarId}</span>}
+                  <span className="ml-2"><Badge tone={c.role === 'write_target' ? 'green' : 'neutral'}>{c.role === 'write_target' ? '書き込み先' : '参照のみ'}</Badge></span>
+                </div>
+                <button type="button" className="text-xs text-red-700 underline" onClick={() => run(api.removeCalendar(host.id, c.id))}>解除</button>
+              </li>
+            ))}
+            {calendars.length === 0 && <li className="py-2 text-sm text-stone-500">まだ登録されていません。</li>}
+          </ul>
+        )}
+        <form
+          className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto_auto] gap-2 items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(api.addCalendar(host.id, { calendarId: cal.calendarId.trim(), label: cal.label.trim(), role: cal.role }).then(() => setCal({ calendarId: '', label: '', role: 'busy_source' })));
+          }}
+        >
+          <div>
+            <label className="label" htmlFor="c-id">カレンダーID</label>
+            <input id="c-id" className="input" placeholder="primary または xxx@group.calendar.google.com" value={cal.calendarId} onChange={(e) => setCal({ ...cal, calendarId: e.target.value })} required />
+          </div>
+          <div>
+            <label className="label" htmlFor="c-label">表示名</label>
+            <input id="c-label" className="input" placeholder="例: 教室" value={cal.label} onChange={(e) => setCal({ ...cal, label: e.target.value })} />
+          </div>
+          <div>
+            <label className="label" htmlFor="c-role">用途</label>
+            <select id="c-role" className="input" value={cal.role} onChange={(e) => setCal({ ...cal, role: e.target.value as HostCalendar['role'] })}>
+              <option value="busy_source">参照のみ</option>
+              <option value="write_target" disabled={hasWriteTarget}>書き込み先</option>
+            </select>
+          </div>
+          <button type="submit" className="btn-secondary">追加</button>
+        </form>
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">営業時間枠(曜日ごと)</h2>
+        <p className="text-xs text-stone-600">この時間帯の中からレッスン長で枠を切り出します。同じ曜日に複数登録できます(例: 10:00-12:00 と 14:00-18:00)。</p>
+        {windows === null ? <Spinner /> : (
+          <ul className="divide-y divide-stone-100">
+            {[...windows].sort((a, b) => a.weekday - b.weekday || a.startTime.localeCompare(b.startTime)).map((w) => (
+              <li key={w.id} className="flex items-center justify-between py-2 text-sm">
+                <span><b>{WEEKDAY_JA[w.weekday]}</b> {w.startTime} – {w.endTime}</span>
+                <button type="button" className="text-xs text-red-700 underline" onClick={() => run(api.removeWindow(host.id, w.id))}>削除</button>
+              </li>
+            ))}
+            {windows.length === 0 && <li className="py-2 text-sm text-stone-500">まだ登録されていません。登録するまで空き枠は表示されません。</li>}
+          </ul>
+        )}
+        <form
+          className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(api.addWindow(host.id, win));
+          }}
+        >
+          <div>
+            <label className="label" htmlFor="w-day">曜日</label>
+            <select id="w-day" className="input" value={win.weekday} onChange={(e) => setWin({ ...win, weekday: Number(e.target.value) })}>
+              {WEEKDAY_JA.map((d, i) => (
+                <option key={d} value={i}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="w-start">開始</label>
+            <input id="w-start" className="input" type="time" step={900} value={win.startTime} onChange={(e) => setWin({ ...win, startTime: e.target.value })} required />
+          </div>
+          <div>
+            <label className="label" htmlFor="w-end">終了</label>
+            <input id="w-end" className="input" type="time" step={900} value={win.endTime} onChange={(e) => setWin({ ...win, endTime: e.target.value })} required />
+          </div>
+          <button type="submit" className="btn-secondary">追加</button>
+        </form>
+      </section>
+    </div>
+  );
+}

@@ -12,6 +12,7 @@ const schema = z.object({
   GOOGLE_CLIENT_ID: z.string().default(''),
   GOOGLE_CLIENT_SECRET: z.string().default(''),
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:8787/google/callback'),
+  WEB_DIST: z.string().default('web/dist'),
 });
 
 export type Config = z.infer<typeof schema>;

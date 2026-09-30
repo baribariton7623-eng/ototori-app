@@ -1,0 +1,60 @@
+import { useMemo } from 'react';
+import type { Slot } from '../api/types';
+import { WEEKDAY_JA, dateKey, fmtTime } from '../lib/format';
+
+interface Props {
+  slots: Slot[];
+  selected: string | null;
+  onSelect: (startAt: string) => void;
+  emptyText?: string;
+}
+
+/** 空き枠を日付ごとにグループ化して表示する */
+export function SlotPicker({ slots, selected, onSelect, emptyText = 'この期間に空き枠はありません' }: Props) {
+  const groups = useMemo(() => {
+    const map = new Map<string, Slot[]>();
+    for (const s of slots) {
+      const k = dateKey(s.startAt);
+      const list = map.get(k) ?? [];
+      list.push(s);
+      map.set(k, list);
+    }
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [slots]);
+
+  if (groups.length === 0) return <div className="text-sm text-stone-500 py-4 text-center">{emptyText}</div>;
+
+  return (
+    <div className="space-y-3">
+      {groups.map(([key, list]) => {
+        const d = new Date(`${key}T00:00:00+09:00`);
+        const wd = WEEKDAY_JA[d.getDay()];
+        const [, m, day] = key.split('-');
+        return (
+          <div key={key}>
+            <div className={`text-xs font-medium mb-1 ${wd === '日' ? 'text-red-600' : wd === '土' ? 'text-sky-700' : 'text-stone-600'}`}>
+              {Number(m)}/{Number(day)} ({wd})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {list.map((s) => {
+                const active = s.startAt === selected;
+                return (
+                  <button
+                    key={s.startAt}
+                    type="button"
+                    onClick={() => onSelect(s.startAt)}
+                    className={`rounded-md border px-2.5 py-1 text-sm ${
+                      active ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-stone-300 hover:bg-emerald-50'
+                    }`}
+                  >
+                    {fmtTime(s.startAt)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

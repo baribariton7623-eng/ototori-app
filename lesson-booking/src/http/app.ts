@@ -1,4 +1,6 @@
 import express, { type NextFunction, type Request, type Response, type Router } from 'express';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import type { CalendarClient } from '../calendar/CalendarClient.js';
 import type { GoogleCalendarClient } from '../calendar/GoogleCalendarClient.js';
@@ -28,6 +30,8 @@ export interface AppDeps {
   /** CALENDAR=google のときだけ渡す(OAuth 連携エンドポイント用) */
   google?: GoogleCalendarClient | undefined;
   defaultTimezone: string;
+  /** フロントエンド(web/dist)のパス。存在すれば静的配信する */
+  staticDir?: string | undefined;
 }
 
 // ---------- 入力スキーマ ----------
@@ -114,6 +118,10 @@ export function createApp(deps: AppDeps): express.Express {
   app.use(publicRoutes(deps));
   app.use(studentRoutes(deps));
   app.use(googleRoutes(deps));
+
+  if (deps.staticDir && existsSync(path.join(deps.staticDir, 'index.html'))) {
+    app.use(express.static(deps.staticDir));
+  }
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'not_found', message: 'エンドポイントが見つかりません' } });

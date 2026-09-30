@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { FakeCalendarClient } from './calendar/FakeCalendarClient.js';
 import { GoogleCalendarClient } from './calendar/GoogleCalendarClient.js';
 import { loadConfig } from './config.js';
@@ -35,6 +36,7 @@ const app = createApp({
   auth: cfg.AUTH_MODE === 'supabase' ? { mode: 'supabase', jwtSecret: cfg.SUPABASE_JWT_SECRET } : { mode: 'dev' },
   google,
   defaultTimezone: cfg.TIMEZONE,
+  staticDir: path.resolve(process.cwd(), cfg.WEB_DIST),
 });
 
 app.listen(cfg.PORT, () => {
