@@ -6,6 +6,7 @@ import {
   cancelledByHostMails,
   changeDecidedMails,
   changeRequestedMails,
+  lessonReminderMails,
   type TemplateContext,
 } from './templates.js';
 
@@ -30,6 +31,9 @@ export class EmailNotifier implements Notifier {
 
   cancelledByHost: Notifier['cancelledByHost'] = async (e) =>
     this.sendAll(cancelledByHostMails(this.ctx, e.host, e.student, e.booking, e.reason));
+
+  lessonReminder: Notifier['lessonReminder'] = async (e) =>
+    this.sendAll(lessonReminderMails(this.ctx, e.host, e.student, e.booking));
 
   private async sendAll(messages: EmailMessage[]): Promise<void> {
     const results = await Promise.allSettled(messages.map((m) => this.sender.send(m)));

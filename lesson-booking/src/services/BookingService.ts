@@ -71,6 +71,7 @@ export class BookingService {
       calendarEventId: null,
       note: input.note?.trim() || null,
       cancellationFeeStatus: 'none',
+      reminderSentAt: null,
     });
 
     const eventId = await this.writeCalendarEvent(host, booking, input.student);
@@ -330,6 +331,8 @@ export class BookingService {
     return this.repos.bookings.update(booking.id, {
       startAt: newStart.toISOString(),
       endAt: newEnd.toISOString(),
+      // 新しい日時について改めて前日リマインドを送る
+      reminderSentAt: null,
     });
   }
 

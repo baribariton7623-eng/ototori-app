@@ -14,6 +14,7 @@ import { AccountService, type AccountCleanup } from './services/AccountService.j
 import { AvailabilityService } from './services/AvailabilityService.js';
 import { BillingService } from './services/BillingService.js';
 import { BookingService } from './services/BookingService.js';
+import { ReminderService } from './services/ReminderService.js';
 
 const cfg = loadConfig();
 
@@ -63,6 +64,17 @@ const cleanup: AccountCleanup = {
   },
 };
 const accounts = new AccountService(repos, bookings, billing, cleanup, systemClock);
+const reminders = new ReminderService(repos, notifier, systemClock, cfg.REMINDER_HOURS_BEFORE);
+
+if (cfg.REMINDER_INTERVAL_MINUTES > 0) {
+  const run = () =>
+    reminders
+      .runOnce()
+      .then((r) => r.checked > 0 && console.log('[reminder]', r))
+      .catch((e) => console.error('[reminder] 実行に失敗しました', e));
+  setInterval(run, cfg.REMINDER_INTERVAL_MINUTES * 60_000).unref();
+  void run();
+}
 
 const app = createApp({
   repos,
@@ -71,6 +83,8 @@ const app = createApp({
   bookings,
   billing,
   accounts,
+  reminders,
+  cronSecret: cfg.CRON_SECRET,
   fakeBilling: cfg.BILLING === 'fake',
   clock: systemClock,
   auth: cfg.AUTH_MODE === 'supabase' ? { mode: 'supabase', jwtSecret: cfg.SUPABASE_JWT_SECRET } : { mode: 'dev' },

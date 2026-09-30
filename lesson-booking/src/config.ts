@@ -21,6 +21,12 @@ const schema = z.object({
   RESEND_API_KEY: z.string().default(''),
   /** 例: "レッスン予約 <noreply@example.com>"。ドメインは Resend で認証済みであること */
   MAIL_FROM: z.string().default(''),
+  /** POST /internal/cron/reminders の x-cron-secret。空ならエンドポイント無効 */
+  CRON_SECRET: z.string().default(''),
+  /** 何時間前にリマインドするか */
+  REMINDER_HOURS_BEFORE: z.coerce.number().int().min(1).max(168).default(24),
+  /** >0 ならサーバー内で N 分ごとにリマインドを実行(サーバーが 1 台のときだけ使う) */
+  REMINDER_INTERVAL_MINUTES: z.coerce.number().int().min(0).default(0),
   BILLING: z.enum(['fake', 'stripe']).default('fake'),
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),

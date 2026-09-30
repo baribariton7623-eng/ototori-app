@@ -4,6 +4,7 @@ import { MemoryEmailSender } from '../src/notify/EmailSender.js';
 import { EmailNotifier } from '../src/notify/EmailNotifier.js';
 import { AccountService, type AccountCleanup } from '../src/services/AccountService.js';
 import { BillingService } from '../src/services/BillingService.js';
+import { ReminderService } from '../src/services/ReminderService.js';
 import type { Host, Student, Weekday } from '../src/domain/types.js';
 import { createInMemoryRepositories, type Clock } from '../src/repo/InMemoryRepositories.js';
 import type { Repositories } from '../src/repo/Repository.js';
@@ -34,6 +35,7 @@ export interface TestWorld {
   billing: BillingService;
   cleanup: AccountCleanup & { revoked: string[]; deletedAuthUsers: string[] };
   accounts: AccountService;
+  reminders: ReminderService;
   host: Host;
   student: Student;
 }
@@ -63,6 +65,7 @@ export async function setupWorld(): Promise<TestWorld> {
     },
   };
   const accounts = new AccountService(repos, bookings, billing, cleanup, clock);
+  const reminders = new ReminderService(repos, notifier, clock, 24);
 
   const host = await repos.hosts.create({
     email: 'teacher@example.com',
@@ -84,7 +87,7 @@ export async function setupWorld(): Promise<TestWorld> {
   await repos.hostCalendars.add({ hostId: host.id, calendarId: 'private@group.calendar.google.com', label: '私用', role: 'busy_source' });
 
   const student = await repos.students.create({ email: 'student@example.com', name: '生徒B' });
-  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, host, student };
+  return { clock, repos, calendar, availability, bookings, mail, billingProvider, billing, cleanup, accounts, reminders, host, student };
 }
 
 /** JST のローカル日時を UTC Date に */

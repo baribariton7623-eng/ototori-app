@@ -181,3 +181,19 @@ export function cancelledByHostMails(ctx: TemplateContext, host: Host, student: 
     },
   ];
 }
+
+export function lessonReminderMails(ctx: TemplateContext, host: Host, student: Student, booking: Booking): EmailMessage[] {
+  const tz = host.timezone;
+  return [
+    {
+      to: student.email,
+      subject: `【明日のレッスン】${host.displayName} ${fmt(booking.startAt, tz)}`,
+      text:
+        `${studentName(student)}\n\n${host.displayName} のレッスンのリマインドです。\n\n日時: ${range(booking, tz)}` +
+        (booking.note ? `\n備考: ${booking.note}` : '') +
+        `\n\n予約の確認: ${links(ctx).mine}\n` +
+        `※開始2週間前を過ぎているため、キャンセル・変更には講師の承認が必要です。` +
+        footer(ctx),
+    },
+  ];
+}

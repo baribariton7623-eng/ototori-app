@@ -80,6 +80,8 @@ export interface Booking {
   note: string | null;
   /** キャンセルフィー: none=不要 / pending=支払い意思あり未払い / paid=支払済 */
   cancellationFeeStatus: 'none' | 'pending' | 'paid';
+  /** 前日リマインドを送った時刻。日時変更で null に戻る */
+  reminderSentAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

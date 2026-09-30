@@ -94,6 +94,7 @@ const bookingFromRow = (r: Row): Booking => ({
   calendarEventId: (r.calendar_event_id as string | null) ?? null,
   note: (r.note as string | null) ?? null,
   cancellationFeeStatus: r.cancellation_fee_status as Booking['cancellationFeeStatus'],
+  reminderSentAt: (r.reminder_sent_at as string | null) ?? null,
   createdAt: r.created_at as string,
   updatedAt: r.updated_at as string,
 });
@@ -106,6 +107,7 @@ const bookingToRow = (b: Partial<Booking>): Row => strip({
   calendar_event_id: b.calendarEventId,
   note: b.note,
   cancellation_fee_status: b.cancellationFeeStatus,
+  reminder_sent_at: b.reminderSentAt,
   updated_at: b.updatedAt,
 });
 
@@ -246,6 +248,21 @@ function buildRepositories(sb: SupabaseClient): Repositories {
             .order('start_at')
             .returns<Row[]>(),
           '予約一覧',
+        );
+        return rows.map(bookingFromRow);
+      },
+      async listDueForReminder(from, to) {
+        const rows = must(
+          await sb
+            .from('lb_bookings')
+            .select()
+            .eq('status', 'confirmed')
+            .is('reminder_sent_at', null)
+            .gte('start_at', from.toISOString())
+            .lt('start_at', to.toISOString())
+            .order('start_at')
+            .returns<Row[]>(),
+          'リマインド対象',
         );
         return rows.map(bookingFromRow);
       },

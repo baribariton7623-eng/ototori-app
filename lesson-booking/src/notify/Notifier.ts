@@ -20,6 +20,8 @@ export interface Notifier {
   changeDecided(e: Parties & { request: ChangeRequest; before: Booking; after: Booking }): Promise<void>;
   /** 主催者が予約をキャンセルした(休講・退会) */
   cancelledByHost(e: Parties & { booking: Booking; reason: string }): Promise<void>;
+  /** レッスン前日のリマインド(生徒宛) */
+  lessonReminder(e: Parties & { booking: Booking }): Promise<void>;
 }
 
 export const noopNotifier: Notifier = {
@@ -28,6 +30,7 @@ export const noopNotifier: Notifier = {
   async changeRequested() {},
   async changeDecided() {},
   async cancelledByHost() {},
+  async lessonReminder() {},
 };
 
 /** 通知の失敗をログに落として握りつぶす */

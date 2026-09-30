@@ -517,6 +517,25 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
         '409': { $ref: '#/components/responses/Error' }
+  /internal/cron/reminders:
+    post:
+      tags: [public]
+      security: []
+      summary: 前日リマインドの実行(外部 cron 用)
+      parameters:
+        - { name: x-cron-secret, in: header, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checked: { type: integer }
+                  sent: { type: integer }
+                  failed: { type: integer }
+        '403': { $ref: '#/components/responses/Error' }
   /billing/webhook:
     post:
       tags: [public]
@@ -616,6 +635,7 @@ components:
         calendarEventId: { type: [string, 'null'] }
         note: { type: [string, 'null'] }
         cancellationFeeStatus: { type: string, enum: [none, pending, paid] }
+        reminderSentAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     StudentBooking:

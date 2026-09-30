@@ -48,6 +48,8 @@ export interface BookingRepository {
   /** 指定期間に開始する主催者の確定予約数(プラン上限の判定用) */
   countConfirmedByHost(hostId: string, from: Date, to: Date): Promise<number>;
   listByStudent(studentId: string): Promise<Booking[]>;
+  /** 全主催者横断: [from, to) に開始する確定予約のうち、リマインド未送信のもの */
+  listDueForReminder(from: Date, to: Date): Promise<Booking[]>;
   listByHost(hostId: string): Promise<Booking[]>;
 }
 

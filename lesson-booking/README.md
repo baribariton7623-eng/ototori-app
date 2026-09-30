@@ -95,7 +95,15 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
 2. `.env` に `MAIL=resend`, `RESEND_API_KEY`, `MAIL_FROM="レッスン予約 <noreply@あなたのドメイン>"`, `SERVICE_NAME`
 3. ローカルは `MAIL=console` のままで、送信内容がサーバーログに出る
 
-送るメール: 予約確定・新しい予約・キャンセル/変更完了・申請受付・要承認・申請結果・休講のお知らせ(一覧は spec.md §3.6)。
+送るメール: 予約確定・新しい予約・キャンセル/変更完了・申請受付・要承認・申請結果・休講のお知らせ・前日リマインド(一覧は spec.md §3.6)。
+
+前日リマインドは定期実行が必要。`.env` に `CRON_SECRET` を設定し、外部 cron(Render Cron Job、GitHub Actions の schedule、cron-job.org など)から毎時次を実行する。
+
+```bash
+curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<api-host>/internal/cron/reminders
+```
+
+サーバーが 1 台だけなら、代わりに `REMINDER_INTERVAL_MINUTES=60` でサーバー内で実行してもよい(複数台で有効にすると二重送信の可能性がある)。
 
 ### 4. Stripe(プロプラン課金)
 1. Stripe で商品「プロプラン」と月額 Price を作成 → `STRIPE_PRICE_ID_PRO`
@@ -136,6 +144,6 @@ test/                 vitest
 
 ## 未実装・今後
 
-- 組織(教室)プラン、キャンセルフィーの決済(Stripe Connect)、前日リマインド(docs/business.md §7)
+- 組織(教室)プラン、キャンセルフィーの決済(Stripe Connect)(docs/business.md §7)
 - 決済 — キャンセルフィーは「支払う意思」と「入金確認」のフラグのみ
 - 実 Supabase / 実 Google / 実 Stripe / 実 Resend での結合確認

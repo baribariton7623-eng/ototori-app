@@ -23,6 +23,8 @@ import type { AccountService } from '../services/AccountService.js';
 import type { AvailabilityService } from '../services/AvailabilityService.js';
 import type { BillingService } from '../services/BillingService.js';
 import type { BookingService } from '../services/BookingService.js';
+import type { ReminderService } from '../services/ReminderService.js';
+import { timingSafeEqual } from 'node:crypto';
 import { authMiddleware, requireHost, requirePrincipal, requireStudent, type AuthMode } from './auth.js';
 
 export interface AppDeps {
@@ -32,6 +34,9 @@ export interface AppDeps {
   bookings: BookingService;
   billing: BillingService;
   accounts: AccountService;
+  reminders: ReminderService;
+  /** 定期実行エンドポイントの共有シークレット。空なら無効 */
+  cronSecret: string;
   /** FakeBillingProvider のとき true(開発用の即時有効化エンドポイントを出す) */
   fakeBilling: boolean;
   clock: Clock;
@@ -125,6 +130,15 @@ export function createApp(deps: AppDeps): express.Express {
   }));
 
   app.use(express.json({ limit: '100kb' }));
+
+  // 定期実行(外部 cron から叩く)。ユーザー認証ではなく共有シークレットで保護する
+  app.post('/internal/cron/reminders', wrap(async (req, res) => {
+    if (!deps.cronSecret || !safeEqual(header(req, 'x-cron-secret') ?? '', deps.cronSecret)) {
+      throw new DomainError('forbidden', 'cron シークレットが一致しません');
+    }
+    res.json(await deps.reminders.runOnce());
+  }));
+
   app.use(authMiddleware(deps.repos, deps.auth));
 
   app.get('/health', (_req, res) => {
@@ -507,6 +521,12 @@ function decorate<T extends { startAt: string; status: string }>(booking: T, now
     ...booking,
     requiresApprovalToChange: booking.status === 'confirmed' && isLateChange(new Date(booking.startAt), now),
   };
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
 function header(req: Request, name: string): string | undefined {

@@ -31,6 +31,8 @@ beforeAll(async () => {
     bookings: w.bookings,
     billing: new BillingService(w.repos, new FakeBillingProvider('http://localhost')),
     accounts: w.accounts,
+    reminders: w.reminders,
+    cronSecret: 'cron-test-secret',
     fakeBilling: true,
     clock: w.clock,
     auth: { mode: 'dev' },
@@ -271,5 +273,17 @@ describe('休講・退会 API', () => {
     expect(okHost.json.deletedHost).toBe(true);
     expect((await call('GET', '/hosts/by-slug/teacher-d', {})).status).toBe(404);
     expect((await call('GET', '/me', T3)).json.role).toBe('student');
+  });
+});
+
+describe('定期実行エンドポイント', () => {
+  it('シークレットが一致しないと 403、一致すれば実行結果を返す', async () => {
+    const res1 = await fetch(base + '/internal/cron/reminders', { method: 'POST' });
+    expect(res1.status).toBe(403);
+    const res2 = await fetch(base + '/internal/cron/reminders', { method: 'POST', headers: { 'x-cron-secret': 'wrong' } });
+    expect(res2.status).toBe(403);
+    const res3 = await fetch(base + '/internal/cron/reminders', { method: 'POST', headers: { 'x-cron-secret': 'cron-test-secret' } });
+    expect(res3.status).toBe(200);
+    expect(await res3.json()).toMatchObject({ checked: expect.any(Number), sent: expect.any(Number), failed: 0 });
   });
 });

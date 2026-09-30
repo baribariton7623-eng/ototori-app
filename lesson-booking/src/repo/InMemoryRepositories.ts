@@ -155,6 +155,18 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
         })
         .sort((a, b) => a.startAt.localeCompare(b.startAt));
     },
+    async listDueForReminder(from, to) {
+      const f = from.getTime();
+      const t = to.getTime();
+      return bookings
+        .all()
+        .filter((b) => b.status === 'confirmed' && b.reminderSentAt === null)
+        .filter((b) => {
+          const s = new Date(b.startAt).getTime();
+          return s >= f && s < t;
+        })
+        .sort((a, b) => a.startAt.localeCompare(b.startAt));
+    },
     async countConfirmedByHost(hostId, from, to) {
       return (await this.listConfirmedByHost(hostId, from, to)).length;
     },

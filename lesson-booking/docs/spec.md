@@ -108,9 +108,16 @@
 | 直前の変更申請 | 申請受付 | 要承認(メッセージ・3 択・振替希望つき) |
 | 申請の承認・却下 | 申請結果(講師メッセージ、フィー案内) | ー(本人の操作) |
 | 休講・主催者の退会 | 休講のお知らせ(講師メッセージ) | ー |
+| レッスンの 24 時間前(定期実行) | 明日のレッスン | ー |
 
 - メール送信の失敗は業務処理を失敗させない(ログに記録)。1 通の失敗で他の宛先への送信は止めない。
 - 主催者のメールアドレスは生徒宛のメールに載せない。
+
+### 3.6.0 前日リマインド
+- `ReminderService.runOnce()` が「今〜`REMINDER_HOURS_BEFORE`(既定 24)時間後」に始まる確定予約のうち、`reminderSentAt` が null のものに送り、送信成功時に `reminderSentAt` を記録する。実行間隔が空いても取りこぼさない。
+- 日時変更(即時・承認経由とも)で `reminderSentAt` を null に戻し、新しい日時で送り直す。
+- 送信失敗時は印を付けず、次回の実行で再試行する。
+- 起動方法: 外部 cron から `POST /internal/cron/reminders`(ヘッダ `x-cron-secret: $CRON_SECRET`)を毎時叩く。サーバーが 1 台なら `REMINDER_INTERVAL_MINUTES=60` でサーバー内実行も可。
 
 ### 3.6.1 退会(アカウント削除)
 `DELETE /me`。確認文字列(主催者は URL 名、生徒はメールアドレス)を要求する。
@@ -153,7 +160,7 @@ lb_students                 生徒
   id, email(unique), name, created_at
 lb_bookings                 予約
   id, host_id, student_id, start_at, end_at, status(confirmed|cancelled),
-  calendar_event_id, note, cancellation_fee_status(none|pending|paid), created_at, updated_at
+  calendar_event_id, note, cancellation_fee_status(none|pending|paid), reminder_sent_at, created_at, updated_at
   unique(host_id, start_at) where status='confirmed'   -- 二重予約防止
 lb_change_requests          変更要求
   id, booking_id, host_id, student_id, kind(cancel|reschedule),
@@ -181,6 +188,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/hosts/{hostId}/public` | 同上を id で取得 |
 | GET | `/hosts/{hostId}/slots?from&to` | 空き枠。`from`/`to` は受付ウィンドウで自動的にクリップ |
 | POST | `/billing/webhook` | Stripe Webhook(生ボディ・署名検証) |
+| POST | `/internal/cron/reminders` | 前日リマインドの実行(`x-cron-secret` ヘッダ必須) |
 
 ### 生徒
 | Method | Path | 説明 |
