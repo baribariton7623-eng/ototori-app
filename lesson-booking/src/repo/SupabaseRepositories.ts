@@ -36,6 +36,12 @@ const hostFromRow = (r: Row): Host => ({
   id: r.id as string,
   email: r.email as string,
   displayName: r.display_name as string,
+  slug: r.slug as string,
+  bio: (r.bio as string | null) ?? '',
+  plan: (r.plan as Host['plan'] | null) ?? 'free',
+  subscriptionStatus: (r.subscription_status as Host['subscriptionStatus'] | null) ?? 'none',
+  stripeCustomerId: (r.stripe_customer_id as string | null) ?? null,
+  stripeSubscriptionId: (r.stripe_subscription_id as string | null) ?? null,
   timezone: r.timezone as string,
   lessonMinutes: r.lesson_minutes as number,
   minLeadMinutes: r.min_lead_minutes as number,
@@ -44,6 +50,12 @@ const hostFromRow = (r: Row): Host => ({
 const hostToRow = (h: Partial<Host>): Row => strip({
   email: h.email,
   display_name: h.displayName,
+  slug: h.slug,
+  bio: h.bio,
+  plan: h.plan,
+  subscription_status: h.subscriptionStatus,
+  stripe_customer_id: h.stripeCustomerId,
+  stripe_subscription_id: h.stripeSubscriptionId,
   timezone: h.timezone,
   lesson_minutes: h.lessonMinutes,
   min_lead_minutes: h.minLeadMinutes,
@@ -147,6 +159,14 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         const r = maybe(await sb.from('lb_hosts').select().ilike('email', email).maybeSingle<Row>(), '主催者');
         return r ? hostFromRow(r) : null;
       },
+      async findBySlug(slug) {
+        const r = maybe(await sb.from('lb_hosts').select().eq('slug', slug).maybeSingle<Row>(), '主催者');
+        return r ? hostFromRow(r) : null;
+      },
+      async findByStripeCustomerId(customerId) {
+        const r = maybe(await sb.from('lb_hosts').select().eq('stripe_customer_id', customerId).maybeSingle<Row>(), '主催者');
+        return r ? hostFromRow(r) : null;
+      },
       async list() {
         return must(await sb.from('lb_hosts').select().returns<Row[]>(), '主催者一覧').map(hostFromRow);
       },
@@ -221,6 +241,17 @@ function buildRepositories(sb: SupabaseClient): Repositories {
           '予約一覧',
         );
         return rows.map(bookingFromRow);
+      },
+      async countConfirmedByHost(hostId, from, to) {
+        const res = await sb
+          .from('lb_bookings')
+          .select('id', { count: 'exact', head: true })
+          .eq('host_id', hostId)
+          .eq('status', 'confirmed')
+          .gte('start_at', from.toISOString())
+          .lt('start_at', to.toISOString());
+        if (res.error) throw new DomainError('validation', `予約数取得: ${res.error.message}`);
+        return res.count ?? 0;
       },
       async listByStudent(studentId) {
         return must(await sb.from('lb_bookings').select().eq('student_id', studentId).order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);

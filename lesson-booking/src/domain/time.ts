@@ -129,3 +129,13 @@ export function timeStringToMinutes(s: string): number {
   const [h, m] = s.split(':').map(Number) as [number, number];
   return h * 60 + m;
 }
+
+/** 指定タイムゾーンで date を含む暦月の [開始, 翌月開始) を UTC で返す */
+export function monthRange(date: Date, timeZone: string): { from: Date; to: Date } {
+  const p = toLocalParts(date, timeZone);
+  const first = `${p.year}-${pad2(p.month)}-01`;
+  const nextY = p.month === 12 ? p.year + 1 : p.year;
+  const nextM = p.month === 12 ? 1 : p.month + 1;
+  const next = `${nextY}-${pad2(nextM)}-01`;
+  return { from: zonedToUtc(first, '00:00', timeZone), to: zonedToUtc(next, '00:00', timeZone) };
+}

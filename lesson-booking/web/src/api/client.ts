@@ -2,6 +2,7 @@ import { authHeaders } from './auth';
 import type {
   ApiErrorBody,
   AvailabilityWindow,
+  BillingInfo,
   ChangeKind,
   ChangeOutcome,
   ChangeRequest,
@@ -50,7 +51,8 @@ export const api = {
   me: () => request<Me>('GET', '/me'),
 
   // 公開
-  hosts: () => request<PublicHost[]>('GET', '/hosts'),
+  hostBySlug: (slug: string) => request<PublicHost>('GET', `/hosts/by-slug/${encodeURIComponent(slug)}`),
+  hostPublic: (hostId: string) => request<PublicHost>('GET', `/hosts/${hostId}/public`),
   slots: (hostId: string, from?: Date, to?: Date) => {
     const q = new URLSearchParams();
     if (from) q.set('from', from.toISOString());
@@ -70,10 +72,14 @@ export const api = {
   ) => request<ChangeOutcome>('POST', `/bookings/${id}/change`, input),
 
   // 主催者
-  registerHost: (input: { displayName: string; timezone?: string; lessonMinutes?: number; minLeadMinutes?: number }) =>
+  registerHost: (input: { displayName: string; slug?: string; bio?: string; timezone?: string; lessonMinutes?: number; minLeadMinutes?: number }) =>
     request<Host>('POST', '/hosts', input),
-  updateHost: (hostId: string, patch: Partial<Pick<Host, 'displayName' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes'>>) =>
+  updateHost: (hostId: string, patch: Partial<Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes'>>) =>
     request<Host>('PATCH', `/hosts/${hostId}`, patch),
+  billing: (hostId: string) => request<BillingInfo>('GET', `/hosts/${hostId}/billing`),
+  checkout: (hostId: string, successUrl: string, cancelUrl: string) =>
+    request<{ url: string }>('POST', `/hosts/${hostId}/billing/checkout`, { successUrl, cancelUrl }),
+  billingPortal: (hostId: string, returnUrl: string) => request<{ url: string }>('POST', `/hosts/${hostId}/billing/portal`, { returnUrl }),
   calendars: (hostId: string) => request<HostCalendar[]>('GET', `/hosts/${hostId}/calendars`),
   addCalendar: (hostId: string, input: { calendarId: string; label?: string; role: HostCalendar['role'] }) =>
     request<HostCalendar>('POST', `/hosts/${hostId}/calendars`, input),

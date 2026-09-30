@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { AUTH_MODE, setDevUser, signInWithGoogle } from '../api/auth';
 import { ErrorBanner, Notice } from '../components/ui';
 
-export function LoginScreen({ onLogin }: { onLogin: () => void }) {
+export function LoginScreen({ onLogin, embedded = false }: { onLogin: () => void; embedded?: boolean }) {
+  const wrap = embedded ? 'space-y-4' : 'card max-w-sm mx-auto mt-10 space-y-4';
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState<unknown>(null);
 
   if (AUTH_MODE === 'supabase') {
     return (
-      <div className="card max-w-sm mx-auto mt-10 space-y-4 text-center">
-        <h1 className="text-lg font-semibold">レッスン予約</h1>
+      <div className={`${wrap} text-center`}>
+        {!embedded && <h1 className="text-lg font-semibold">レッスン予約</h1>}
         <p className="text-sm text-stone-600">Google アカウントでログインして予約を管理します。</p>
         <button
           type="button"
@@ -26,7 +27,7 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
 
   return (
     <form
-      className="card max-w-sm mx-auto mt-10 space-y-4"
+      className={wrap}
       onSubmit={(e) => {
         e.preventDefault();
         if (!email.includes('@')) {
@@ -37,7 +38,7 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
         onLogin();
       }}
     >
-      <h1 className="text-lg font-semibold">レッスン予約</h1>
+      {!embedded && <h1 className="text-lg font-semibold">レッスン予約</h1>}
       <Notice tone="warn">開発モード: メールアドレスを入力するとそのユーザーとして操作できます(本番では Google ログインになります)。</Notice>
       <div>
         <label className="label" htmlFor="login-email">メールアドレス</label>

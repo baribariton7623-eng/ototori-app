@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { AvailabilityWindow, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
+import type { AvailabilityWindow, BillingInfo, Host, HostBooking, HostCalendar, HostChangeRequest, Rules } from '../api/types';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
 import { WEEKDAY_JA, fmtFull, fmtRange } from '../lib/format';
 
@@ -37,7 +37,7 @@ export function HostScreen({ host, rules, onHostUpdated }: { host: Host; rules: 
       </nav>
       {tab === 'requests' && <RequestsTab host={host} rules={rules} />}
       {tab === 'bookings' && <BookingsTab host={host} />}
-      {tab === 'settings' && <SettingsTab host={host} onHostUpdated={onHostUpdated} />}
+      {tab === 'settings' && <SettingsTab host={host} rules={rules} onHostUpdated={onHostUpdated} />}
     </div>
   );
 }
@@ -193,13 +193,21 @@ function BookingsTab({ host }: { host: Host }) {
 
 // ---------- 設定 ----------
 
-function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: Host) => void }) {
+function SettingsTab({ host, rules, onHostUpdated }: { host: Host; rules: Rules; onHostUpdated: (h: Host) => void }) {
   const [windows, setWindows] = useState<AvailabilityWindow[] | null>(null);
   const [calendars, setCalendars] = useState<HostCalendar[] | null>(null);
   const [google, setGoogle] = useState<{ connected: boolean } | null>(null);
+  const [billing, setBilling] = useState<BillingInfo | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [copied, setCopied] = useState(false);
 
-  const [form, setForm] = useState({ displayName: host.displayName, lessonMinutes: host.lessonMinutes, minLeadMinutes: host.minLeadMinutes });
+  const [form, setForm] = useState({
+    displayName: host.displayName,
+    slug: host.slug,
+    bio: host.bio,
+    lessonMinutes: host.lessonMinutes,
+    minLeadMinutes: host.minLeadMinutes,
+  });
   const [win, setWin] = useState({ weekday: 1, startTime: '10:00', endTime: '18:00' });
   const [cal, setCal] = useState<{ calendarId: string; label: string; role: HostCalendar['role'] }>({ calendarId: '', label: '', role: 'busy_source' });
 
@@ -207,6 +215,7 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
     api.windows(host.id).then(setWindows).catch(setError);
     api.calendars(host.id).then(setCalendars).catch(setError);
     api.googleStatus(host.id).then(setGoogle).catch(() => setGoogle({ connected: false }));
+    api.billing(host.id).then(setBilling).catch(setError);
   }, [host.id]);
   useEffect(() => {
     load();
@@ -214,10 +223,99 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
 
   const run = (p: Promise<unknown>) => p.then(load).catch(setError);
   const hasWriteTarget = calendars?.some((c) => c.role === 'write_target') ?? false;
+  const publicUrl = billing?.publicUrl ?? `${window.location.origin}${window.location.pathname}#/h/${host.slug}`;
+  const hereUrl = `${window.location.origin}${window.location.pathname}#/host`;
+  const proPlan = rules.plans.find((p) => p.plan === 'pro');
+  const freePlan = rules.plans.find((p) => p.plan === 'free');
+
+  async function copyUrl() {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* 手動コピーにフォールバック */
+    }
+  }
 
   return (
     <div className="space-y-4">
       <ErrorBanner error={error} onClose={() => setError(null)} />
+
+      <section className="card space-y-2 border-emerald-200">
+        <h2 className="font-semibold">生徒に共有する予約ページ</h2>
+        <div className="flex gap-2 items-center">
+          <input className="input font-mono text-xs" readOnly value={publicUrl} onFocus={(e) => e.currentTarget.select()} aria-label="予約ページURL" />
+          <button type="button" className="btn-secondary whitespace-nowrap" onClick={copyUrl}>{copied ? 'コピーしました' : 'コピー'}</button>
+          <a className="btn-secondary whitespace-nowrap" href={publicUrl} target="_blank" rel="noreferrer">開く</a>
+        </div>
+        <p className="text-xs text-stone-600">この URL を LINE やメールで生徒に送ってください。URL 名は下の「基本設定」で変更できます(変更すると以前の URL は使えなくなります)。</p>
+      </section>
+
+      <section className="card space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">プラン</h2>
+          {billing && <Badge tone={billing.effectivePlan === 'pro' ? 'green' : 'neutral'}>{billing.planLabel}</Badge>}
+        </div>
+        {billing === null ? (
+          <Spinner />
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-lg bg-stone-50 p-2">
+                <div className="text-xs text-stone-500">今月の予約</div>
+                <div className="font-medium">{billing.usage.bookingsThisMonth}{billing.limits.maxBookingsPerMonth !== null ? ` / ${billing.limits.maxBookingsPerMonth}件` : '件(無制限)'}</div>
+              </div>
+              <div className="rounded-lg bg-stone-50 p-2">
+                <div className="text-xs text-stone-500">連携カレンダー</div>
+                <div className="font-medium">{billing.usage.calendars}{billing.limits.maxCalendars !== null ? ` / ${billing.limits.maxCalendars}件` : '件(無制限)'}</div>
+              </div>
+            </div>
+            {billing.subscriptionStatus === 'past_due' && (
+              <Notice tone="warn">お支払いが確認できていません。支払い方法を更新するまでフリープランの上限が適用されます。</Notice>
+            )}
+            {billing.effectivePlan === 'free' ? (
+              <div className="space-y-2">
+                <Notice>
+                  フリー: 月{freePlan?.limits.maxBookingsPerMonth}件まで・カレンダー{freePlan?.limits.maxCalendars}件・予約のカレンダー書き込みなし。
+                  プロ: 予約数・カレンダー数無制限、予約を Google カレンダーに自動登録。
+                </Notice>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() =>
+                    api
+                      .checkout(host.id, hereUrl, hereUrl)
+                      .then(({ url }) => {
+                        window.location.href = url;
+                      })
+                      .catch(setError)
+                  }
+                >
+                  {proPlan?.label ?? 'プロ'}プランにアップグレード
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() =>
+                    api
+                      .billingPortal(host.id, hereUrl)
+                      .then(({ url }) => {
+                        window.location.href = url;
+                      })
+                      .catch(setError)
+                  }
+                >
+                  支払い方法・解約の管理
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
 
       <section className="card space-y-3">
         <h2 className="font-semibold">基本設定</h2>
@@ -225,6 +323,10 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
           <div>
             <label className="label" htmlFor="h-name">表示名</label>
             <input id="h-name" className="input" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />
+          </div>
+          <div>
+            <label className="label" htmlFor="h-slug">URL 名(英小文字・数字・ハイフン)</label>
+            <input id="h-slug" className="input font-mono" value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase() })} pattern="[a-z0-9\-]{3,32}" />
           </div>
           <div>
             <label className="label" htmlFor="h-len">レッスン長(分)</label>
@@ -235,8 +337,12 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
             <input id="h-lead" className="input" type="number" min={0} step={30} value={form.minLeadMinutes} onChange={(e) => setForm({ ...form, minLeadMinutes: Number(e.target.value) })} />
           </div>
         </div>
+        <div>
+          <label className="label" htmlFor="h-bio">紹介文(予約ページに表示)</label>
+          <textarea id="h-bio" className="input min-h-20" value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="例: 声楽・合唱のレッスンです。初心者歓迎。" />
+        </div>
         <div className="flex justify-end">
-          <button type="button" className="btn-primary" onClick={() => api.updateHost(host.id, form).then(onHostUpdated).catch(setError)}>保存</button>
+          <button type="button" className="btn-primary" onClick={() => api.updateHost(host.id, form).then((h) => { onHostUpdated(h); load(); }).catch(setError)}>保存</button>
         </div>
       </section>
 
@@ -272,6 +378,9 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
 
       <section className="card space-y-3">
         <h2 className="font-semibold">連携カレンダー</h2>
+        {billing?.effectivePlan === 'free' && (
+          <Notice tone="warn">フリープランでは予定の参照のみ行い、予約イベントの自動作成はプロプランで有効になります。</Notice>
+        )}
         <p className="text-xs text-stone-600">
           「書き込み先」は予約イベントを作成するカレンダー(1件)。「参照のみ」は予定を空き枠から除外するだけのカレンダー(複数可)。どちらも予定がある時間は空き枠から外れます。
         </p>
@@ -331,7 +440,7 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
           </ul>
         )}
         <form
-          className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 items-end"
+          className="grid grid-cols-2 sm:grid-cols-[auto_1fr_1fr_auto] gap-2 items-end"
           onSubmit={(e) => {
             e.preventDefault();
             run(api.addWindow(host.id, win));
@@ -353,7 +462,7 @@ function SettingsTab({ host, onHostUpdated }: { host: Host; onHostUpdated: (h: H
             <label className="label" htmlFor="w-end">終了</label>
             <input id="w-end" className="input" type="time" step={900} value={win.endTime} onChange={(e) => setWin({ ...win, endTime: e.target.value })} required />
           </div>
-          <button type="submit" className="btn-secondary">追加</button>
+          <button type="submit" className="btn-secondary col-span-2 sm:col-span-1">追加</button>
         </form>
       </section>
     </div>

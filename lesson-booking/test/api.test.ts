@@ -1,6 +1,8 @@
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
 import { createApp } from '../src/http/app.js';
+import { BillingService } from '../src/services/BillingService.js';
 import { jst, setupWorld, type TestWorld } from './helpers.js';
 
 let w: TestWorld;
@@ -27,9 +29,12 @@ beforeAll(async () => {
     calendar: w.calendar,
     availability: w.availability,
     bookings: w.bookings,
+    billing: new BillingService(w.repos, new FakeBillingProvider('http://localhost')),
+    fakeBilling: true,
     clock: w.clock,
     auth: { mode: 'dev' },
     defaultTimezone: 'Asia/Tokyo',
+    appBaseUrl: 'http://localhost',
   });
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
@@ -156,5 +161,79 @@ describe('API 一連の流れ', () => {
   it('不正な JSON は 400', async () => {
     const res = await fetch(base + '/bookings', { method: 'POST', headers: { 'content-type': 'application/json', ...STUDENT }, body: '{bad' });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('複数主催者・課金 API', () => {
+  const TEACHER2 = { 'x-dev-user-email': 'teacher2@example.com' };
+
+  it('主催者登録で slug が付与され、公開ページ情報を slug で取得できる', async () => {
+    const created = await call('POST', '/hosts', TEACHER2, { displayName: '講師C', slug: 'Piano-Lab', bio: 'ピアノ教室です' });
+    expect(created.status).toBe(201);
+    expect(created.json.slug).toBe('piano-lab');
+    expect(created.json.plan).toBe('free');
+
+    const pub = await call('GET', '/hosts/by-slug/piano-lab', {});
+    expect(pub.status).toBe(200);
+    expect(pub.json).toMatchObject({ slug: 'piano-lab', displayName: '講師C', bio: 'ピアノ教室です' });
+    expect(pub.json.email).toBeUndefined();
+    expect(pub.json.plan).toBeUndefined();
+
+    // slug の重複は不可
+    const dup = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { slug: 'piano-lab' });
+    expect(dup.status).toBe(400);
+    // 主催者一覧は公開しない
+    expect((await call('GET', '/hosts', {})).status).toBe(404);
+  });
+
+  it('フリープランはカレンダー1件まで。課金を有効化すると制限が外れる', async () => {
+    const me = await call('GET', '/me', TEACHER2);
+    const hostId = me.json.host.id as string;
+
+    const first = await call('POST', `/hosts/${hostId}/calendars`, TEACHER2, { calendarId: 'primary', role: 'write_target' });
+    expect(first.status).toBe(201);
+    const second = await call('POST', `/hosts/${hostId}/calendars`, TEACHER2, { calendarId: 'second', role: 'busy_source' });
+    expect(second.status).toBe(402);
+    expect(second.json.error.code).toBe('plan_limit');
+
+    const billing = await call('GET', `/hosts/${hostId}/billing`, TEACHER2);
+    expect(billing.json.effectivePlan).toBe('free');
+    expect(billing.json.usage.calendars).toBe(1);
+    expect(billing.json.publicUrl).toBe('http://localhost/#/h/piano-lab');
+
+    const checkout = await call('POST', `/hosts/${hostId}/billing/checkout`, TEACHER2, {
+      successUrl: 'http://localhost/#/host',
+      cancelUrl: 'http://localhost/#/host',
+    });
+    expect(checkout.status).toBe(200);
+    expect(checkout.json.url).toContain('/billing/fake/activate?');
+
+    // fake の checkout URL を踏む(リダイレクトは追わない)
+    const activate = await fetch(base + new URL(checkout.json.url).pathname + new URL(checkout.json.url).search, { redirect: 'manual' });
+    expect(activate.status).toBe(302);
+
+    const after = await call('GET', `/hosts/${hostId}/billing`, TEACHER2);
+    expect(after.json.effectivePlan).toBe('pro');
+    const third = await call('POST', `/hosts/${hostId}/calendars`, TEACHER2, { calendarId: 'second', role: 'busy_source' });
+    expect(third.status).toBe(201);
+
+    // Webhook(fake は JSON をそのまま受ける)で解約
+    const cus = after.json.subscriptionStatus === 'active' ? 'fake_cus_' + hostId.slice(0, 8) : '';
+    const hook = await fetch(base + '/billing/webhook', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'subscription_canceled', customerId: cus, subscriptionId: 'x' }),
+    });
+    expect(hook.status).toBe(200);
+    const final = await call('GET', `/hosts/${hostId}/billing`, TEACHER2);
+    expect(final.json.effectivePlan).toBe('free');
+    expect(final.json.subscriptionStatus).toBe('canceled');
+  });
+
+  it('他の主催者の課金情報や設定にはアクセスできない', async () => {
+    const r = await call('GET', `/hosts/${w.host.id}/billing`, TEACHER2);
+    expect(r.status).toBe(403);
+    const r2 = await call('POST', `/hosts/${w.host.id}/availability-windows`, TEACHER2, { weekday: 0, startTime: '09:00', endTime: '10:00' });
+    expect(r2.status).toBe(403);
   });
 });

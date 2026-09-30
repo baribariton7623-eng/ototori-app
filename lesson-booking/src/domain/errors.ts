@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'late_change_requires_request'
   | 'change_request_pending'
   | 'invalid_state'
+  | 'plan_limit'
   | 'calendar_error';
 
 export class DomainError extends Error {
@@ -37,6 +38,8 @@ function statusFor(code: ErrorCode): number {
     case 'change_request_pending':
     case 'invalid_state':
       return 409;
+    case 'plan_limit':
+      return 402;
     case 'calendar_error':
       return 502;
   }

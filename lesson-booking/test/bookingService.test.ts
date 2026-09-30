@@ -221,7 +221,19 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
     const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: NEAR });
     const r = await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'cancel', message: 'x', option: 'request_approval' });
     if (r.type !== 'pending_approval') throw new Error('unexpected');
-    const otherHost = await w.repos.hosts.create({ email: 'h2@example.com', displayName: 'B', timezone: 'Asia/Tokyo', lessonMinutes: 60, minLeadMinutes: 0 });
+    const otherHost = await w.repos.hosts.create({
+      email: 'h2@example.com',
+      displayName: 'B',
+      slug: 'b',
+      bio: '',
+      plan: 'free',
+      subscriptionStatus: 'none',
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      timezone: 'Asia/Tokyo',
+      lessonMinutes: 60,
+      minLeadMinutes: 0,
+    });
     await expect(w.bookings.decideRequest(r.request.id, otherHost.id, 'approve')).rejects.toBeInstanceOf(DomainError);
   });
 });

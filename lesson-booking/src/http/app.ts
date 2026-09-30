@@ -5,6 +5,9 @@ import { z } from 'zod';
 import type { CalendarClient } from '../calendar/CalendarClient.js';
 import type { GoogleCalendarClient } from '../calendar/GoogleCalendarClient.js';
 import { DomainError } from '../domain/errors.js';
+import { PLAN_LABELS, PLAN_LIMITS, SLUG_PATTERN, effectivePlan, limitsFor, randomSlug } from '../domain/plans.js';
+import { monthRange } from '../domain/time.js';
+import type { Host } from '../domain/types.js';
 import {
   BOOKING_HORIZON_DAYS,
   LATE_CHANGE_OPTION_LABELS,
@@ -17,6 +20,7 @@ import { isValidTimeString, timeStringToMinutes } from '../domain/time.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
 import type { AvailabilityService } from '../services/AvailabilityService.js';
+import type { BillingService } from '../services/BillingService.js';
 import type { BookingService } from '../services/BookingService.js';
 import { authMiddleware, requireHost, requirePrincipal, requireStudent, type AuthMode } from './auth.js';
 
@@ -25,11 +29,16 @@ export interface AppDeps {
   calendar: CalendarClient;
   availability: AvailabilityService;
   bookings: BookingService;
+  billing: BillingService;
+  /** FakeBillingProvider のとき true(開発用の即時有効化エンドポイントを出す) */
+  fakeBilling: boolean;
   clock: Clock;
   auth: AuthMode;
   /** CALENDAR=google のときだけ渡す(OAuth 連携エンドポイント用) */
   google?: GoogleCalendarClient | undefined;
   defaultTimezone: string;
+  /** フロントエンドの公開 URL(公開予約ページ URL の生成に使う) */
+  appBaseUrl: string;
   /** フロントエンド(web/dist)のパス。存在すれば静的配信する */
   staticDir?: string | undefined;
 }
@@ -39,13 +48,21 @@ export interface AppDeps {
 const isoDate = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
 const timeString = z.string().refine(isValidTimeString, 'HH:MM 形式で指定してください');
 
+const slugSchema = z.string().trim().toLowerCase().regex(SLUG_PATTERN, '英小文字・数字・ハイフンで3〜32文字');
 const createHostSchema = z.object({
   displayName: z.string().trim().min(1).max(100),
+  slug: slugSchema.optional(),
+  bio: z.string().trim().max(2000).optional(),
   timezone: z.string().trim().min(1).optional(),
   lessonMinutes: z.number().int().min(5).max(24 * 60).optional(),
   minLeadMinutes: z.number().int().min(0).max(30 * 24 * 60).optional(),
 });
 const patchHostSchema = createHostSchema.partial();
+const billingUrlsSchema = z.object({
+  successUrl: z.url(),
+  cancelUrl: z.url(),
+});
+const returnUrlSchema = z.object({ returnUrl: z.url() });
 
 const addCalendarSchema = z.object({
   calendarId: z.string().trim().min(1),
@@ -92,6 +109,14 @@ const decisionSchema = z.object({
 export function createApp(deps: AppDeps): express.Express {
   const app = express();
   app.disable('x-powered-by');
+
+  // 課金 Webhook は署名検証のため生ボディが必要。JSON パーサより前に登録する
+  app.post('/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), wrap(async (req, res) => {
+    const sig = header(req, 'stripe-signature');
+    const event = await deps.billing.handleWebhook(req.body as Buffer, sig);
+    res.json({ received: true, type: event.type });
+  }));
+
   app.use(express.json({ limit: '100kb' }));
   app.use(authMiddleware(deps.repos, deps.auth));
 
@@ -106,6 +131,11 @@ export function createApp(deps: AppDeps): express.Express {
       lateChangeThresholdDays: LATE_CHANGE_THRESHOLD_DAYS,
       rescheduleRangeDays: RESCHEDULE_RANGE_DAYS,
       lateChangeOptions: LATE_CHANGE_OPTIONS.map((value) => ({ value, label: LATE_CHANGE_OPTION_LABELS[value] })),
+      plans: (Object.keys(PLAN_LIMITS) as (keyof typeof PLAN_LIMITS)[]).map((plan) => ({
+        plan,
+        label: PLAN_LABELS[plan],
+        limits: PLAN_LIMITS[plan],
+      })),
     });
   });
 
@@ -141,9 +171,17 @@ function hostRoutes(deps: AppDeps): Router {
     const p = requirePrincipal(req);
     if (p.host) throw new DomainError('invalid_state', '既に主催者として登録されています', { hostId: p.host.id });
     const body = createHostSchema.parse(req.body);
+    const slug = body.slug ?? (await uniqueRandomSlug(repos));
+    if (await repos.hosts.findBySlug(slug)) throw new DomainError('validation', 'この URL 名は既に使われています', { field: 'slug' });
     const host = await repos.hosts.create({
       email: p.email,
       displayName: body.displayName,
+      slug,
+      bio: body.bio ?? '',
+      plan: 'free',
+      subscriptionStatus: 'none',
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
       timezone: body.timezone ?? deps.defaultTimezone,
       lessonMinutes: body.lessonMinutes ?? 60,
       minLeadMinutes: body.minLeadMinutes ?? 60,
@@ -154,6 +192,9 @@ function hostRoutes(deps: AppDeps): Router {
   r.patch('/hosts/:hostId', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     const body = patchHostSchema.parse(req.body);
+    if (body.slug && body.slug !== host.slug && (await repos.hosts.findBySlug(body.slug))) {
+      throw new DomainError('validation', 'この URL 名は既に使われています', { field: 'slug' });
+    }
     const patch = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined));
     res.json(await repos.hosts.update(host.id, patch));
   }));
@@ -167,6 +208,12 @@ function hostRoutes(deps: AppDeps): Router {
     const host = requireHost(req, param(req, 'hostId'));
     const body = addCalendarSchema.parse(req.body);
     const existing = await repos.hostCalendars.listByHost(host.id);
+    const maxCalendars = limitsFor(host).maxCalendars;
+    if (maxCalendars !== null && existing.length >= maxCalendars) {
+      throw new DomainError('plan_limit', `${PLAN_LABELS[effectivePlan(host)]}プランで連携できるカレンダーは${maxCalendars}件までです`, {
+        limit: maxCalendars,
+      });
+    }
     if (existing.some((c) => c.calendarId === body.calendarId)) {
       throw new DomainError('validation', 'このカレンダーは既に連携済みです', { calendarId: body.calendarId });
     }
@@ -243,7 +290,69 @@ function hostRoutes(deps: AppDeps): Router {
     res.json(await deps.bookings.markFeePaid(param(req, 'id'), host.id));
   }));
 
+  // ---- 課金・プラン ----
+
+  r.get('/hosts/:hostId/billing', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const plan = effectivePlan(host);
+    const limits = limitsFor(host);
+    const { from, to } = monthRange(deps.clock.now(), host.timezone);
+    const [bookingsThisMonth, calendars] = await Promise.all([
+      repos.bookings.countConfirmedByHost(host.id, from, to),
+      repos.hostCalendars.listByHost(host.id),
+    ]);
+    res.json({
+      plan: host.plan,
+      effectivePlan: plan,
+      planLabel: PLAN_LABELS[plan],
+      subscriptionStatus: host.subscriptionStatus,
+      limits,
+      usage: { bookingsThisMonth, calendars: calendars.length },
+      publicUrl: `${deps.appBaseUrl}/#/h/${host.slug}`,
+    });
+  }));
+
+  r.post('/hosts/:hostId/billing/checkout', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const body = billingUrlsSchema.parse(req.body);
+    const url = await deps.billing.checkoutUrl(host, { success: body.successUrl, cancel: body.cancelUrl });
+    res.json({ url });
+  }));
+
+  r.post('/hosts/:hostId/billing/portal', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    const body = returnUrlSchema.parse(req.body);
+    res.json({ url: await deps.billing.portalUrl(host, body.returnUrl) });
+  }));
+
+  if (deps.fakeBilling) {
+    // ローカル用: Checkout の代わりに即時有効化 / 解約して戻る
+    r.get('/billing/fake/activate', wrap(async (req, res) => {
+      const q = z.object({ hostId: z.string(), redirect: z.string() }).parse(req.query);
+      await deps.billing.activateForDev(q.hostId);
+      res.redirect(q.redirect);
+    }));
+    r.get('/billing/fake/cancel', wrap(async (req, res) => {
+      const q = z.object({ hostId: z.string(), redirect: z.string() }).parse(req.query);
+      await deps.billing.cancelForDev(q.hostId);
+      res.redirect(q.redirect);
+    }));
+  }
+
   return r;
+}
+
+async function uniqueRandomSlug(repos: Repositories): Promise<string> {
+  for (let i = 0; i < 5; i++) {
+    const s = randomSlug();
+    if (!(await repos.hosts.findBySlug(s))) return s;
+  }
+  return randomSlug(16);
+}
+
+/** 公開してよい主催者情報 */
+function publicHost(h: Host) {
+  return { id: h.id, slug: h.slug, displayName: h.displayName, bio: h.bio, timezone: h.timezone, lessonMinutes: h.lessonMinutes };
 }
 
 // ---------- 公開(ログイン任意) ----------
@@ -251,9 +360,16 @@ function hostRoutes(deps: AppDeps): Router {
 function publicRoutes(deps: AppDeps): Router {
   const r = express.Router();
 
-  r.get('/hosts', wrap(async (_req, res) => {
-    const hosts = await deps.repos.hosts.list();
-    res.json(hosts.map((h) => ({ id: h.id, displayName: h.displayName, timezone: h.timezone, lessonMinutes: h.lessonMinutes })));
+  // 主催者の一覧は公開しない(各主催者が自分の予約ページ URL を生徒に共有する)
+  r.get('/hosts/by-slug/:slug', wrap(async (req, res) => {
+    const host = await deps.repos.hosts.findBySlug(param(req, 'slug').toLowerCase());
+    if (!host) throw new DomainError('not_found', '予約ページが見つかりません');
+    res.json(publicHost(host));
+  }));
+
+  r.get('/hosts/:hostId/public', wrap(async (req, res) => {
+    const host = await deps.availability.getHost(param(req, 'hostId'));
+    res.json(publicHost(host));
   }));
 
   r.get('/hosts/:hostId/slots', wrap(async (req, res) => {
@@ -357,6 +473,11 @@ function decorate<T extends { startAt: string; status: string }>(booking: T, now
     ...booking,
     requiresApprovalToChange: booking.status === 'confirmed' && isLateChange(new Date(booking.startAt), now),
   };
+}
+
+function header(req: Request, name: string): string | undefined {
+  const v = req.headers[name];
+  return Array.isArray(v) ? v[0] : v;
 }
 
 function param(req: Request, name: string): string {

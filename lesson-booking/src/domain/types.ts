@@ -5,11 +5,22 @@
 
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=日曜
 
-/** 主催者(講師) */
+export type Plan = 'free' | 'pro';
+export type SubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';
+
+/** 主催者(講師)。SaaS のテナント単位 */
 export interface Host {
   id: string;
   email: string;
   displayName: string;
+  /** 公開予約ページの URL 用識別子 (^[a-z0-9-]{3,32}$, unique) */
+  slug: string;
+  /** 生徒向けの紹介文 */
+  bio: string;
+  plan: Plan;
+  subscriptionStatus: SubscriptionStatus;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
   /** IANA タイムゾーン。既定 Asia/Tokyo */
   timezone: string;
   /** 1レッスンの長さ(分) */

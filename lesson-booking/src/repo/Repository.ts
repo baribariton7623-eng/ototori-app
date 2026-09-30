@@ -12,6 +12,8 @@ export interface HostRepository {
   update(id: string, patch: Partial<Omit<Host, 'id' | 'createdAt'>>): Promise<Host>;
   findById(id: string): Promise<Host | null>;
   findByEmail(email: string): Promise<Host | null>;
+  findBySlug(slug: string): Promise<Host | null>;
+  findByStripeCustomerId(customerId: string): Promise<Host | null>;
   list(): Promise<Host[]>;
 }
 
@@ -39,6 +41,8 @@ export interface BookingRepository {
   findById(id: string): Promise<Booking | null>;
   /** 指定期間に開始する主催者の確定予約 */
   listConfirmedByHost(hostId: string, from: Date, to: Date): Promise<Booking[]>;
+  /** 指定期間に開始する主催者の確定予約数(プラン上限の判定用) */
+  countConfirmedByHost(hostId: string, from: Date, to: Date): Promise<number>;
   listByStudent(studentId: string): Promise<Booking[]>;
   listByHost(hostId: string): Promise<Booking[]>;
 }

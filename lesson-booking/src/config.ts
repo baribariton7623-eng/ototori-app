@@ -13,6 +13,12 @@ const schema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().default(''),
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:8787/google/callback'),
   WEB_DIST: z.string().default('web/dist'),
+  /** フロントエンドの公開 URL(末尾スラッシュなし)。公開予約ページ URL・課金のリダイレクト先に使う */
+  APP_BASE_URL: z.string().default('http://localhost:8787'),
+  BILLING: z.enum(['fake', 'stripe']).default('fake'),
+  STRIPE_SECRET_KEY: z.string().default(''),
+  STRIPE_WEBHOOK_SECRET: z.string().default(''),
+  STRIPE_PRICE_ID_PRO: z.string().default(''),
 });
 
 export type Config = z.infer<typeof schema>;
@@ -28,6 +34,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (cfg.CALENDAR === 'google') {
     if (!cfg.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
     if (!cfg.GOOGLE_CLIENT_SECRET) missing.push('GOOGLE_CLIENT_SECRET');
+  }
+  if (cfg.BILLING === 'stripe') {
+    for (const k of ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_PRICE_ID_PRO'] as const) if (!cfg[k]) missing.push(k);
   }
   if (missing.length > 0) {
     throw new Error(`環境変数が不足しています: ${missing.join(', ')}`);

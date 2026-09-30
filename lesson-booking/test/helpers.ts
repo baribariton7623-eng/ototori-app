@@ -39,6 +39,12 @@ export async function setupWorld(): Promise<TestWorld> {
   const host = await repos.hosts.create({
     email: 'teacher@example.com',
     displayName: '講師A',
+    slug: 'teacher-a',
+    bio: '',
+    plan: 'pro',
+    subscriptionStatus: 'active',
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
     timezone: 'Asia/Tokyo',
     lessonMinutes: 60,
     minLeadMinutes: 60,

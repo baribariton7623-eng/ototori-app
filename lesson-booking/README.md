@@ -3,7 +3,9 @@
 講師(主催者)の複数 Google カレンダーと連携してレッスンの空き枠を出し、生徒が **40 日先まで** 予約できるバックエンド API。
 レッスン開始まで **2 週間未満** のキャンセル・変更は、生徒がメッセージと対応方法(承認を求める / 2 週間以内の別日に振替 / キャンセルフィーを支払う)を添えて申請し、主催者が承認するまで確定しない。
 
-仕様の詳細は [docs/spec.md](./docs/spec.md)、API スキーマは [openapi.yaml](./openapi.yaml)。
+複数の講師がそれぞれ専用の公開予約ページ(`/#/h/<slug>`)を持つ SaaS 構成。フリー/プロのプランと Stripe 課金を備える。
+
+仕様の詳細は [docs/spec.md](./docs/spec.md)、API スキーマは [openapi.yaml](./openapi.yaml)、サービスとして販売する際の整理は [docs/business.md](./docs/business.md)。
 
 このディレクトリは単体で動く独立プロジェクトで、そのまま別リポジトリへ移せる。
 
@@ -60,7 +62,8 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
 本番は `cd web && npm run build` すると `web/dist` ができ、バックエンドが同じオリジンで静的配信する(`WEB_DIST` 環境変数)。
 `VITE_AUTH_MODE=supabase` のときは Supabase Auth の Google ログインを使う(`VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`)。
 
-- 初回は「講師の方」から主催者登録 → 設定タブで営業時間枠と連携カレンダーを登録すると、生徒側に空き枠が出る
+- 初回は「講師の方」から主催者登録(URL 名を決める)→ 設定タブで営業時間枠と連携カレンダーを登録 → 「生徒に共有する予約ページ」の URL を生徒に送る
+- 生徒はその URL をログインなしで開いて空き枠を見られ、予約時にログインする
 - 開始まで 14 日未満の予約は「変更は承認制」バッジが付き、キャンセル・変更ダイアログでメッセージと 3 択が必須になる
 
 ## スクリプト
@@ -87,7 +90,15 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
    - `role: write_target` … 予約確定時にイベントを書き込む(1 件)。空き枠計算でも予定ありとして扱う
    - `role: busy_source` … 空き枠計算で予定ありとして扱うだけ(複数可)。calendarId は Google カレンダーの設定画面「カレンダー ID」
 
-### 3. デプロイ
+### 3. Stripe(プロプラン課金)
+1. Stripe で商品「プロプラン」と月額 Price を作成 → `STRIPE_PRICE_ID_PRO`
+2. Webhook `https://<api-host>/billing/webhook` を登録し `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted` を購読 → `STRIPE_WEBHOOK_SECRET`
+3. Customer Portal を有効化
+4. `.env` に `BILLING=stripe`, `STRIPE_SECRET_KEY`, `APP_BASE_URL`(フロントの公開 URL)
+
+ローカルは `BILLING=fake` のまま、設定画面の「プロプランにアップグレード」で即時にプロになる。プランの上限は `src/domain/plans.ts`。
+
+### 4. デプロイ
 `npm run build` 後 `node dist/server.js`。常駐 Node が動く環境(Render / Fly.io / Railway / Cloud Run など)を想定。ポートは `PORT`。
 
 ## ディレクトリ
@@ -98,6 +109,7 @@ src/
   domain/        型・業務ルール(40日/14日/振替範囲)・空き枠計算・時刻ヘルパ(純関数)
   services/      AvailabilityService(空き枠) / BookingService(予約・変更要求・承認)
   calendar/      CalendarClient インターフェース / Google 実装 / Fake 実装
+  billing/       BillingProvider インターフェース / Stripe 実装 / Fake 実装
   repo/          Repository インターフェース / InMemory 実装 / Supabase 実装
   http/          Express アプリ・認証ミドルウェア
   server.ts      エントリポイント(環境変数で実装を差し替え)
@@ -109,6 +121,7 @@ test/                 vitest
 
 ## 未実装・今後
 
-- 通知(メール・LINE 等) — `Notifier` インターフェースに差し込む
+- 通知(メール・LINE 等) — `Notifier` インターフェースに差し込む。販売するなら最優先(docs/business.md)
+- LP・利用規約・プライバシーポリシー・特商法表記、退会(データ削除)
 - 決済 — キャンセルフィーは「支払う意思」と「入金確認」のフラグのみ
 - 実 Supabase / 実 Google アカウントでの結合テスト

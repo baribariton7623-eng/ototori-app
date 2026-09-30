@@ -2,19 +2,30 @@ import { useCallback, useEffect, useState } from 'react';
 import { isSignedIn, onAuthChange, signOut } from './api/auth';
 import { ApiError, api } from './api/client';
 import type { Host, Me, Rules } from './api/types';
-import { ErrorBanner, Spinner } from './components/ui';
+import { ErrorBanner, Modal, Spinner } from './components/ui';
 import { BecomeHostScreen } from './screens/BecomeHostScreen';
 import { BookScreen } from './screens/BookScreen';
 import { HostScreen } from './screens/HostScreen';
+import { LandingScreen } from './screens/LandingScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { MyBookingsScreen } from './screens/MyBookingsScreen';
+import { StudentHomeScreen } from './screens/StudentHomeScreen';
 
-type Route = 'book' | 'mine' | 'host' | 'become-host';
+type Route =
+  | { name: 'home' }
+  | { name: 'host-page'; slug: string }
+  | { name: 'mine' }
+  | { name: 'host' }
+  | { name: 'become-host' };
 
 function readRoute(): Route {
   const h = window.location.hash.replace(/^#\/?/, '');
-  if (h === 'mine' || h === 'host' || h === 'become-host') return h;
-  return 'book';
+  const m = /^h\/([^/?#]+)/.exec(h);
+  if (m?.[1]) return { name: 'host-page', slug: decodeURIComponent(m[1]) };
+  if (h === 'mine') return { name: 'mine' };
+  if (h === 'host') return { name: 'host' };
+  if (h === 'become-host') return { name: 'become-host' };
+  return { name: 'home' };
 }
 
 export function App() {
@@ -24,6 +35,7 @@ export function App() {
   const [rules, setRules] = useState<Rules | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [bookingsKey, setBookingsKey] = useState(0);
+  const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
     const onHash = () => setRoute(readRoute());
@@ -35,8 +47,7 @@ export function App() {
     try {
       const ok = await isSignedIn();
       setSignedIn(ok);
-      if (ok) setMe(await api.me());
-      else setMe(null);
+      setMe(ok ? await api.me() : null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) {
         setSignedIn(false);
@@ -51,13 +62,15 @@ export function App() {
     return onAuthChange(() => void refreshSession());
   }, [refreshSession]);
 
-  function go(r: Route) {
-    window.location.hash = `/${r}`;
-  }
-
-  function onHostUpdated(h: Host) {
-    setMe((m) => (m ? { ...m, host: h, role: 'host' } : m));
-  }
+  const go = (hash: string) => {
+    window.location.hash = hash;
+  };
+  const onHostUpdated = (h: Host) => setMe((m) => (m ? { ...m, host: h, role: 'host' } : m));
+  const openLogin = () => setShowLogin(true);
+  const onLoggedIn = () => {
+    setShowLogin(false);
+    void refreshSession();
+  };
 
   if (signedIn === null || rules === null) {
     return (
@@ -68,50 +81,75 @@ export function App() {
     );
   }
 
-  if (!signedIn) {
-    return (
-      <div className="p-4">
-        <LoginScreen onLogin={() => void refreshSession()} />
-      </div>
-    );
-  }
+  const isHost = signedIn && me?.role === 'host' && !!me.host;
 
-  const isHost = me?.role === 'host' && me.host;
-  // 主催者は主催者画面、生徒は予約画面が既定
-  const effective: Route = isHost ? 'host' : route === 'host' ? 'become-host' : route;
+  // 画面の決定
+  let content: React.ReactNode;
+  if (route.name === 'host-page') {
+    content = (
+      <BookScreen slug={route.slug} rules={rules} signedIn={signedIn} onRequireLogin={openLogin} onBooked={() => setBookingsKey((k) => k + 1)} />
+    );
+  } else if (!signedIn) {
+    content = <LandingScreen onLogin={openLogin} />;
+  } else if (isHost) {
+    content = me?.host ? <HostScreen host={me.host} rules={rules} onHostUpdated={onHostUpdated} /> : null;
+  } else if (route.name === 'mine') {
+    content = <MyBookingsScreen rules={rules} refreshKey={bookingsKey} />;
+  } else if (route.name === 'become-host' || route.name === 'host') {
+    content = (
+      <BecomeHostScreen
+        onRegistered={(h) => {
+          onHostUpdated(h);
+          go('/host');
+        }}
+      />
+    );
+  } else {
+    content = <StudentHomeScreen />;
+  }
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-stone-200">
         <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-between gap-2">
-          <div className="font-semibold whitespace-nowrap">レッスン予約{isHost && <span className="ml-2 text-xs font-normal text-stone-500">主催者: {me?.host?.displayName}</span>}</div>
+          <a href={isHost ? '#/host' : '#/'} className="font-semibold whitespace-nowrap">
+            レッスン予約
+            {isHost && <span className="ml-2 text-xs font-normal text-stone-500">主催者: {me?.host?.displayName}</span>}
+          </a>
           <nav className="flex items-center gap-0.5 text-xs sm:text-sm">
-            {!isHost && (
+            {signedIn && !isHost && (
               <>
-                <NavButton active={effective === 'book'} onClick={() => go('book')}>予約する</NavButton>
-                <NavButton active={effective === 'mine'} onClick={() => go('mine')}>マイ予約</NavButton>
-                <NavButton active={effective === 'become-host'} onClick={() => go('become-host')}>講師の方</NavButton>
+                <NavButton active={route.name === 'home'} onClick={() => go('/')}>ホーム</NavButton>
+                <NavButton active={route.name === 'mine'} onClick={() => go('/mine')}>マイ予約</NavButton>
+                <NavButton active={route.name === 'become-host'} onClick={() => go('/become-host')}>講師の方</NavButton>
               </>
             )}
-            <button
-              type="button"
-              className="ml-1 whitespace-nowrap text-xs text-stone-500 underline"
-              onClick={() => signOut().then(() => refreshSession())}
-              title={me?.email}
-            >
-              ログアウト
-            </button>
+            {isHost && me?.host && (
+              <a className="whitespace-nowrap rounded-md px-2 py-1 text-stone-700 hover:bg-stone-100" href={`#/h/${me.host.slug}`}>公開ページ</a>
+            )}
+            {signedIn ? (
+              <button type="button" className="ml-1 whitespace-nowrap text-xs text-stone-500 underline" onClick={() => signOut().then(() => refreshSession())} title={me?.email}>
+                ログアウト
+              </button>
+            ) : (
+              <button type="button" className="ml-1 whitespace-nowrap text-xs text-emerald-800 underline" onClick={openLogin}>
+                ログイン
+              </button>
+            )}
           </nav>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto p-4 space-y-4">
         <ErrorBanner error={error} onClose={() => setError(null)} />
-        {effective === 'book' && <BookScreen rules={rules} onBooked={() => setBookingsKey((k) => k + 1)} />}
-        {effective === 'mine' && <MyBookingsScreen rules={rules} refreshKey={bookingsKey} />}
-        {effective === 'become-host' && <BecomeHostScreen onRegistered={(h) => { onHostUpdated(h); go('host'); }} />}
-        {effective === 'host' && me?.host && <HostScreen host={me.host} rules={rules} onHostUpdated={onHostUpdated} />}
+        {content}
       </main>
+
+      {showLogin && (
+        <Modal title="ログイン" onClose={() => setShowLogin(false)}>
+          <LoginScreen onLogin={onLoggedIn} embedded />
+        </Modal>
+      )}
     </div>
   );
 }

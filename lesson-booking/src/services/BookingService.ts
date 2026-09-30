@@ -1,5 +1,7 @@
 import type { CalendarClient } from '../calendar/CalendarClient.js';
 import { DomainError } from '../domain/errors.js';
+import { limitsFor } from '../domain/plans.js';
+import { monthRange } from '../domain/time.js';
 import {
   assertWithinBookingWindow,
   isLateChange,
@@ -69,6 +71,7 @@ export class BookingService {
         startAt: input.startAt.toISOString(),
       });
     }
+    await this.assertMonthlyQuota(host, input.startAt);
 
     const endAt = new Date(input.startAt.getTime() + host.lessonMinutes * 60_000);
     let booking = await this.repos.bookings.create({
@@ -279,7 +282,22 @@ export class BookingService {
     return updated;
   }
 
+  /** フリープランの月間予約上限(レッスン日の暦月で数える) */
+  private async assertMonthlyQuota(host: Host, startAt: Date): Promise<void> {
+    const limit = limitsFor(host).maxBookingsPerMonth;
+    if (limit === null) return;
+    const { from, to } = monthRange(startAt, host.timezone);
+    const count = await this.repos.bookings.countConfirmedByHost(host.id, from, to);
+    if (count >= limit) {
+      throw new DomainError('plan_limit', `この月の予約枠が上限(${limit}件)に達しています。主催者にお問い合わせください`, {
+        limit,
+        month: from.toISOString(),
+      });
+    }
+  }
+
   private async writeCalendarEvent(host: Host, booking: Booking, student: Student): Promise<string | null> {
+    if (!limitsFor(host).calendarWrite) return null;
     const target = await this.writeTargetCalendar(host.id);
     if (!target) return null;
     const { eventId } = await this.calendar.createEvent(host.id, {

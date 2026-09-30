@@ -3,11 +3,31 @@
 export type LateChangeOption = 'request_approval' | 'reschedule_within_two_weeks' | 'pay_cancellation_fee';
 export type ChangeKind = 'cancel' | 'reschedule';
 
+export type Plan = 'free' | 'pro';
+export type SubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';
+
+export interface PlanLimits {
+  maxCalendars: number | null;
+  maxBookingsPerMonth: number | null;
+  calendarWrite: boolean;
+}
+
 export interface Rules {
   bookingHorizonDays: number;
   lateChangeThresholdDays: number;
   rescheduleRangeDays: number;
   lateChangeOptions: { value: LateChangeOption; label: string }[];
+  plans: { plan: Plan; label: string; limits: PlanLimits }[];
+}
+
+export interface BillingInfo {
+  plan: Plan;
+  effectivePlan: Plan;
+  planLabel: string;
+  subscriptionStatus: SubscriptionStatus;
+  limits: PlanLimits;
+  usage: { bookingsThisMonth: number; calendars: number };
+  publicUrl: string;
 }
 
 export interface Me {
@@ -21,6 +41,10 @@ export interface Host {
   id: string;
   email: string;
   displayName: string;
+  slug: string;
+  bio: string;
+  plan: Plan;
+  subscriptionStatus: SubscriptionStatus;
   timezone: string;
   lessonMinutes: number;
   minLeadMinutes: number;
@@ -29,7 +53,9 @@ export interface Host {
 
 export interface PublicHost {
   id: string;
+  slug: string;
   displayName: string;
+  bio: string;
   timezone: string;
   lessonMinutes: number;
 }

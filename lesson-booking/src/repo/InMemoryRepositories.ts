@@ -68,6 +68,12 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
       const e = email.toLowerCase();
       return hosts.all().find((h) => h.email.toLowerCase() === e) ?? null;
     },
+    async findBySlug(slug) {
+      return hosts.all().find((h) => h.slug === slug) ?? null;
+    },
+    async findByStripeCustomerId(customerId) {
+      return hosts.all().find((h) => h.stripeCustomerId === customerId) ?? null;
+    },
     async list() {
       return hosts.all();
     },
@@ -135,6 +141,9 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
           return e > f && s < t;
         })
         .sort((a, b) => a.startAt.localeCompare(b.startAt));
+    },
+    async countConfirmedByHost(hostId, from, to) {
+      return (await this.listConfirmedByHost(hostId, from, to)).length;
     },
     async listByStudent(studentId) {
       return bookings

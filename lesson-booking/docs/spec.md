@@ -11,7 +11,8 @@
 
 | 用語 | 意味 |
 | --- | --- |
-| 主催者 (host) | レッスンを提供する講師。Google カレンダーを連携し、営業時間枠を設定し、直前変更を承認する |
+| 主催者 (host) | レッスンを提供する講師。SaaS のテナント単位。Google カレンダーを連携し、営業時間枠を設定し、直前変更を承認する。専用の公開予約ページ URL(`/#/h/<slug>`)を持つ |
+| プラン (plan) | フリー / プロ。上限は §3.7 |
 | 生徒 (student) | レッスンを予約する利用者 |
 | 営業時間枠 (availability window) | 曜日ごとの「この時間帯なら予約を受ける」範囲。主催者のタイムゾーンで `HH:MM`〜`HH:MM` |
 | 空き枠 (slot) | 営業時間枠をレッスン長で刻んだもののうち、連携カレンダーの予定・既存予約と重ならないもの |
@@ -96,13 +97,30 @@
 ### 3.6 通知
 メール等の送信は未実装。以下のフックポイントを `Notifier` インターフェースとして用意している: 予約作成 / 予約変更反映 / 変更要求作成 / 変更要求の判断。
 
+### 3.7 複数主催者とプラン(SaaS)
+- 主催者一覧は公開しない。各主催者が `slug` 付きの公開予約ページ URL を生徒に共有する。slug は `^[a-z0-9-]{3,32}$`、全体で一意。未指定なら 10 文字のランダム値。
+- 生徒はログインなしで公開ページの空き枠を閲覧でき、予約時にログインを求める。
+- プランと上限(`src/domain/plans.ts`):
+
+| | free | pro |
+| --- | --- | --- |
+| 月間予約数(レッスン日の暦月・主催者 TZ) | 10 | 無制限 |
+| 連携カレンダー数 | 1 | 無制限 |
+| 予約のカレンダー書き込み | なし | あり |
+
+- 実効プラン: `plan = pro` かつ `subscriptionStatus = active` のときだけ pro。`past_due` / `canceled` は free の上限に落ちる。
+- 上限超過は `plan_limit`(HTTP 402)。
+- 課金は `BillingProvider` 抽象(Stripe 実装 / Fake 実装)。Checkout → Webhook で `plan` / `subscriptionStatus` / `stripeCustomerId` / `stripeSubscriptionId` を更新。販売面の整理は `docs/business.md`。
+
 ## 4. データモデル
 
 Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイムゾーン。SQL は `supabase/migrations/0001_init.sql`。
 
 ```
-lb_hosts                    主催者
-  id, email(unique), display_name, timezone, lesson_minutes, min_lead_minutes, created_at
+lb_hosts                    主催者(テナント)
+  id, email(unique), display_name, slug(unique), bio, plan(free|pro),
+  subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
+  timezone, lesson_minutes, min_lead_minutes, created_at
 lb_host_google_credentials  Google OAuth refresh token(主催者と 1:1、service role のみ参照)
   host_id(pk), refresh_token, updated_at
 lb_host_calendars           連携カレンダー(role: busy_source | write_target。write_target は主催者ごとに 1 件)
@@ -137,8 +155,10 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | --- | --- | --- |
 | GET | `/health` | 稼働確認 |
 | GET | `/rules` | 業務ルール定数(40 日・14 日・振替範囲・3 択のラベル) |
-| GET | `/hosts` | 主催者一覧(公開情報のみ) |
+| GET | `/hosts/by-slug/{slug}` | 公開予約ページ用の主催者情報(id, slug, displayName, bio, timezone, lessonMinutes) |
+| GET | `/hosts/{hostId}/public` | 同上を id で取得 |
 | GET | `/hosts/{hostId}/slots?from&to` | 空き枠。`from`/`to` は受付ウィンドウで自動的にクリップ |
+| POST | `/billing/webhook` | Stripe Webhook(生ボディ・署名検証) |
 
 ### 生徒
 | Method | Path | 説明 |
@@ -152,8 +172,12 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 ### 主催者
 | Method | Path | 説明 |
 | --- | --- | --- |
-| POST | `/hosts` | ログイン中ユーザーを主催者登録 `{displayName, timezone?, lessonMinutes?, minLeadMinutes?}` |
-| PATCH | `/hosts/{hostId}` | 主催者設定変更 |
+| POST | `/hosts` | ログイン中ユーザーを主催者登録 `{displayName, slug?, bio?, timezone?, lessonMinutes?, minLeadMinutes?}` |
+| PATCH | `/hosts/{hostId}` | 主催者設定変更(slug, bio 含む) |
+| GET | `/hosts/{hostId}/billing` | プラン・上限・今月の利用量・公開 URL |
+| POST | `/hosts/{hostId}/billing/checkout` | `{successUrl, cancelUrl}` → Stripe Checkout URL |
+| POST | `/hosts/{hostId}/billing/portal` | `{returnUrl}` → Customer Portal URL |
+| GET | `/billing/fake/activate` `/billing/fake/cancel` | `BILLING=fake` のときのみ。即時有効化/解約してリダイレクト |
 | GET/POST | `/hosts/{hostId}/calendars` | 連携カレンダー一覧/追加 `{calendarId, label?, role}` |
 | DELETE | `/hosts/{hostId}/calendars/{id}` | 連携解除 |
 | GET/POST | `/hosts/{hostId}/availability-windows` | 営業時間枠一覧/追加 `{weekday, startTime, endTime}` |
@@ -182,11 +206,12 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | `slot_unavailable` | 409 | 枠が空いていない |
 | `change_request_pending` | 409 | 承認待ちがある |
 | `invalid_state` | 409 | 状態遷移が不正 |
+| `plan_limit` | 402 | プランの上限(月間予約数・カレンダー数) |
 | `calendar_error` | 502 | Google 連携エラー・未連携 |
 
 ## 6. 画面・フロー
 
-`web/` に React で実装済み。ハッシュルーティング(`#/book`, `#/mine`, `#/host`, `#/become-host`)。主催者アカウントは常に主催者画面、それ以外は生徒画面。
+`web/` に React で実装済み。ハッシュルーティング(`#/` ホーム/ランディング, `#/h/<slug>` 公開予約ページ, `#/mine`, `#/host`, `#/become-host`)。主催者アカウントは常に主催者画面、それ以外は生徒画面。公開予約ページは未ログインでも閲覧でき、予約時にログインモーダルを出す。
 
 ### 生徒
 1. **主催者選択 → カレンダー表示**: `/hosts/{id}/slots` を週または月で表示。40 日より先はグレーアウトし「予約は 40 日先まで」と注記。
@@ -220,5 +245,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | Google Calendar 連携 | 実装済み(実アカウントでの動作確認は未実施) |
 | Supabase JWT 認証 | 実装済み(実トークンでの確認は未実施) |
 | フロントエンド(生徒・主催者画面) | 実装済み(web/)。Playwright で講師設定→予約→直前申請→承認の一連を確認済み |
+| 複数主催者(公開ページ slug・プラン上限) | 実装済み(vitest 48 件・ブラウザ確認済み) |
+| Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
+| 通知・LP・法務ページ・退会 | 未実装(docs/business.md のロードマップ) |
 | 通知(メール等) | 未実装(`Notifier` フックのみ) |
 | 決済 | スコープ外(入金確認フラグのみ) |
