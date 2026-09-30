@@ -1,0 +1,309 @@
+import type { CalendarClient } from '../calendar/CalendarClient.js';
+import { DomainError } from '../domain/errors.js';
+import {
+  assertWithinBookingWindow,
+  isLateChange,
+  isWithinRescheduleRange,
+  validateLateChangeRequest,
+} from '../domain/rules.js';
+import type { Booking, ChangeKind, ChangeRequest, Host, LateChangeOption, Student } from '../domain/types.js';
+import type { Clock } from '../repo/InMemoryRepositories.js';
+import type { Repositories } from '../repo/Repository.js';
+import type { AvailabilityService } from './AvailabilityService.js';
+
+export interface CreateBookingInput {
+  hostId: string;
+  student: Student;
+  startAt: Date;
+  note?: string | undefined;
+}
+
+export interface ChangeInput {
+  bookingId: string;
+  student: Student;
+  kind: ChangeKind;
+  /** 直前変更時に必須 */
+  message?: string | undefined;
+  option?: LateChangeOption | undefined;
+  /** kind=reschedule のとき必須 */
+  proposedStartAt?: Date | undefined;
+}
+
+export type ChangeOutcome =
+  | { type: 'applied'; booking: Booking }
+  | { type: 'pending_approval'; booking: Booking; request: ChangeRequest };
+
+/** 通知フック。メール等は未実装で、呼び出しポイントだけ用意している */
+export interface Notifier {
+  bookingCreated(booking: Booking, host: Host, student: Student): Promise<void>;
+  bookingChanged(booking: Booking, host: Host, student: Student, kind: ChangeKind): Promise<void>;
+  changeRequested(request: ChangeRequest, booking: Booking, host: Host, student: Student): Promise<void>;
+  changeDecided(request: ChangeRequest, booking: Booking, host: Host, student: Student): Promise<void>;
+}
+
+export const noopNotifier: Notifier = {
+  async bookingCreated() {},
+  async bookingChanged() {},
+  async changeRequested() {},
+  async changeDecided() {},
+};
+
+export class BookingService {
+  constructor(
+    private readonly repos: Repositories,
+    private readonly calendar: CalendarClient,
+    private readonly availability: AvailabilityService,
+    private readonly clock: Clock,
+    private readonly notifier: Notifier = noopNotifier,
+  ) {}
+
+  // ---------- 予約 ----------
+
+  async createBooking(input: CreateBookingInput): Promise<Booking> {
+    const host = await this.availability.getHost(input.hostId);
+    const now = this.clock.now();
+    assertWithinBookingWindow(input.startAt, now, host.minLeadMinutes);
+
+    if (!(await this.availability.isSlotAvailable(host, input.startAt))) {
+      throw new DomainError('slot_unavailable', 'この枠は予約できません(営業時間外、または既に予定があります)', {
+        startAt: input.startAt.toISOString(),
+      });
+    }
+
+    const endAt = new Date(input.startAt.getTime() + host.lessonMinutes * 60_000);
+    let booking = await this.repos.bookings.create({
+      hostId: host.id,
+      studentId: input.student.id,
+      startAt: input.startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      status: 'confirmed',
+      calendarEventId: null,
+      note: input.note?.trim() || null,
+      cancellationFeeStatus: 'none',
+    });
+
+    const eventId = await this.writeCalendarEvent(host, booking, input.student);
+    if (eventId) booking = await this.repos.bookings.update(booking.id, { calendarEventId: eventId });
+
+    await this.notifier.bookingCreated(booking, host, input.student);
+    return booking;
+  }
+
+  async getBookingForStudent(bookingId: string, student: Student): Promise<Booking> {
+    const booking = await this.mustBooking(bookingId);
+    if (booking.studentId !== student.id) throw new DomainError('forbidden', 'この予約を操作する権限がありません');
+    return booking;
+  }
+
+  async getBookingForHost(bookingId: string, hostId: string): Promise<Booking> {
+    const booking = await this.mustBooking(bookingId);
+    if (booking.hostId !== hostId) throw new DomainError('forbidden', 'この予約を操作する権限がありません');
+    return booking;
+  }
+
+  // ---------- キャンセル・変更 ----------
+
+  /**
+   * 生徒によるキャンセル/変更。
+   * - レッスン開始まで14日以上: 即時反映
+   * - 14日未満: メッセージ+対応方法が必須。変更要求を作成して主催者の承認待ちにする(予約は確定状態のまま)
+   */
+  async requestChange(input: ChangeInput): Promise<ChangeOutcome> {
+    const booking = await this.getBookingForStudent(input.bookingId, input.student);
+    if (booking.status !== 'confirmed') {
+      throw new DomainError('invalid_state', 'この予約は既にキャンセルされています');
+    }
+    const host = await this.availability.getHost(booking.hostId);
+    const now = this.clock.now();
+    const lessonStart = new Date(booking.startAt);
+    if (lessonStart.getTime() <= now.getTime()) {
+      throw new DomainError('invalid_state', '開始済み・終了済みのレッスンは変更できません');
+    }
+    const pending = await this.repos.changeRequests.findPendingByBooking(booking.id);
+    if (pending) {
+      throw new DomainError('change_request_pending', '承認待ちの変更要求があります。主催者の判断をお待ちください', {
+        requestId: pending.id,
+      });
+    }
+
+    if (input.kind === 'reschedule' && !input.proposedStartAt) {
+      throw new DomainError('validation', '振替希望日時を指定してください', { field: 'proposedStartAt' });
+    }
+
+    if (!isLateChange(lessonStart, now)) {
+      // 猶予あり → 即時反映
+      const updated =
+        input.kind === 'cancel'
+          ? await this.applyCancel(host, booking, input.student, 'none')
+          : await this.applyReschedule(host, booking, input.student, input.proposedStartAt as Date);
+      return { type: 'applied', booking: updated };
+    }
+
+    // 直前 → 承認制
+    const validated = validateLateChangeRequest(booking, {
+      kind: input.kind,
+      option: input.option,
+      message: input.message,
+      proposedStartAt: input.proposedStartAt,
+    });
+    if (validated.proposedStartAt) {
+      // 振替先は受付ウィンドウ内かつ空いていることを要求時点でも確認する
+      assertWithinBookingWindow(validated.proposedStartAt, now, host.minLeadMinutes);
+      if (!(await this.availability.isSlotAvailable(host, validated.proposedStartAt, booking.id))) {
+        throw new DomainError('slot_unavailable', '振替希望の枠は予約できません', {
+          proposedStartAt: validated.proposedStartAt.toISOString(),
+        });
+      }
+    }
+
+    const request = await this.repos.changeRequests.create({
+      bookingId: booking.id,
+      hostId: host.id,
+      studentId: input.student.id,
+      kind: input.kind,
+      option: validated.option,
+      message: validated.message,
+      proposedStartAt: validated.proposedStartAt?.toISOString() ?? null,
+      status: 'pending',
+      decisionNote: null,
+    });
+    await this.notifier.changeRequested(request, booking, host, input.student);
+    return { type: 'pending_approval', booking, request };
+  }
+
+  // ---------- 主催者の承認 ----------
+
+  async listPendingRequests(hostId: string): Promise<ChangeRequest[]> {
+    return this.repos.changeRequests.listByHost(hostId, 'pending');
+  }
+
+  async decideRequest(
+    requestId: string,
+    hostId: string,
+    decision: 'approve' | 'reject',
+    note?: string,
+  ): Promise<{ request: ChangeRequest; booking: Booking }> {
+    const request = await this.repos.changeRequests.findById(requestId);
+    if (!request) throw new DomainError('not_found', '変更要求が見つかりません', { requestId });
+    if (request.hostId !== hostId) throw new DomainError('forbidden', 'この変更要求を判断する権限がありません');
+    if (request.status !== 'pending') {
+      throw new DomainError('invalid_state', 'この変更要求は既に処理されています', { status: request.status });
+    }
+    const booking = await this.mustBooking(request.bookingId);
+    const host = await this.availability.getHost(booking.hostId);
+    const student = await this.repos.students.findById(booking.studentId);
+    if (!student) throw new DomainError('not_found', '生徒が見つかりません');
+    const now = this.clock.now().toISOString();
+
+    if (decision === 'reject') {
+      const rejected = await this.repos.changeRequests.update(request.id, {
+        status: 'rejected',
+        decisionNote: note?.trim() || null,
+        decidedAt: now,
+      });
+      await this.notifier.changeDecided(rejected, booking, host, student);
+      return { request: rejected, booking };
+    }
+
+    let updated: Booking;
+    if (request.kind === 'cancel') {
+      const fee = request.option === 'pay_cancellation_fee' ? 'pending' : 'none';
+      updated = await this.applyCancel(host, booking, student, fee);
+    } else {
+      if (!request.proposedStartAt) throw new DomainError('invalid_state', '振替先日時がありません');
+      const proposed = new Date(request.proposedStartAt);
+      if (!isWithinRescheduleRange(new Date(booking.startAt), proposed)) {
+        throw new DomainError('validation', '振替先が範囲外です');
+      }
+      updated = await this.applyReschedule(host, booking, student, proposed);
+    }
+    const approved = await this.repos.changeRequests.update(request.id, {
+      status: 'approved',
+      decisionNote: note?.trim() || null,
+      decidedAt: now,
+    });
+    await this.notifier.changeDecided(approved, updated, host, student);
+    return { request: approved, booking: updated };
+  }
+
+  /** 主催者がキャンセルフィーの入金を確認したとき */
+  async markFeePaid(bookingId: string, hostId: string): Promise<Booking> {
+    const booking = await this.getBookingForHost(bookingId, hostId);
+    if (booking.cancellationFeeStatus !== 'pending') {
+      throw new DomainError('invalid_state', 'この予約に未払いのキャンセルフィーはありません');
+    }
+    return this.repos.bookings.update(booking.id, { cancellationFeeStatus: 'paid' });
+  }
+
+  // ---------- 内部 ----------
+
+  private async applyCancel(
+    host: Host,
+    booking: Booking,
+    student: Student,
+    fee: Booking['cancellationFeeStatus'],
+  ): Promise<Booking> {
+    const target = await this.writeTargetCalendar(host.id);
+    if (booking.calendarEventId && target) {
+      await this.calendar.deleteEvent(host.id, target, booking.calendarEventId);
+    }
+    const updated = await this.repos.bookings.update(booking.id, {
+      status: 'cancelled',
+      calendarEventId: null,
+      cancellationFeeStatus: fee,
+    });
+    await this.notifier.bookingChanged(updated, host, student, 'cancel');
+    return updated;
+  }
+
+  private async applyReschedule(host: Host, booking: Booking, student: Student, newStart: Date): Promise<Booking> {
+    const now = this.clock.now();
+    assertWithinBookingWindow(newStart, now, host.minLeadMinutes);
+    if (!(await this.availability.isSlotAvailable(host, newStart, booking.id))) {
+      throw new DomainError('slot_unavailable', '振替先の枠は予約できません', { startAt: newStart.toISOString() });
+    }
+    const newEnd = new Date(newStart.getTime() + host.lessonMinutes * 60_000);
+    const target = await this.writeTargetCalendar(host.id);
+    if (booking.calendarEventId && target) {
+      await this.calendar.updateEvent(host.id, target, booking.calendarEventId, {
+        startAt: newStart.toISOString(),
+        endAt: newEnd.toISOString(),
+        timezone: host.timezone,
+      });
+    }
+    const updated = await this.repos.bookings.update(booking.id, {
+      startAt: newStart.toISOString(),
+      endAt: newEnd.toISOString(),
+    });
+    await this.notifier.bookingChanged(updated, host, student, 'reschedule');
+    return updated;
+  }
+
+  private async writeCalendarEvent(host: Host, booking: Booking, student: Student): Promise<string | null> {
+    const target = await this.writeTargetCalendar(host.id);
+    if (!target) return null;
+    const { eventId } = await this.calendar.createEvent(host.id, {
+      calendarId: target,
+      summary: `レッスン: ${student.name || student.email}`,
+      description: [`予約ID: ${booking.id}`, `生徒: ${student.name} <${student.email}>`, booking.note ? `備考: ${booking.note}` : '']
+        .filter(Boolean)
+        .join('\n'),
+      startAt: booking.startAt,
+      endAt: booking.endAt,
+      timezone: host.timezone,
+      attendeeEmail: student.email,
+    });
+    return eventId;
+  }
+
+  private async writeTargetCalendar(hostId: string): Promise<string | null> {
+    const calendars = await this.repos.hostCalendars.listByHost(hostId);
+    return calendars.find((c) => c.role === 'write_target')?.calendarId ?? null;
+  }
+
+  private async mustBooking(id: string): Promise<Booking> {
+    const booking = await this.repos.bookings.findById(id);
+    if (!booking) throw new DomainError('not_found', '予約が見つかりません', { bookingId: id });
+    return booking;
+  }
+}

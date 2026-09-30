@@ -1,0 +1,497 @@
+openapi: 3.1.0
+info:
+  title: Lesson Booking API
+  version: 0.1.0
+  description: |
+    レッスン予約サービス。複数 Google カレンダー連携で空き枠を出し、40 日先まで予約できる。
+    レッスン開始まで 14 日未満のキャンセル・変更はメッセージ+対応方法(3 択)を添えた変更要求となり、主催者の承認で確定する。
+    詳細は docs/spec.md。
+servers:
+  - url: http://localhost:8787
+security:
+  - bearerAuth: []
+  - devHeader: []
+tags:
+  - { name: public, description: ログイン不要 }
+  - { name: student, description: 生徒 }
+  - { name: host, description: 主催者 }
+  - { name: google, description: Google カレンダー連携 }
+
+paths:
+  /health:
+    get:
+      tags: [public]
+      security: []
+      responses:
+        '200': { description: OK }
+  /rules:
+    get:
+      tags: [public]
+      security: []
+      summary: 業務ルール定数
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookingHorizonDays: { type: integer, example: 40 }
+                  lateChangeThresholdDays: { type: integer, example: 14 }
+                  rescheduleRangeDays: { type: integer, example: 14 }
+                  lateChangeOptions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value: { $ref: '#/components/schemas/LateChangeOption' }
+                        label: { type: string }
+  /me:
+    get:
+      tags: [student, host]
+      summary: ログイン中ユーザー
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email: { type: string }
+                  name: { type: string }
+                  role: { type: string, enum: [host, student] }
+                  host: { oneOf: [{ $ref: '#/components/schemas/Host' }, { type: 'null' }] }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /hosts:
+    get:
+      tags: [public]
+      security: []
+      summary: 主催者一覧(公開情報)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    displayName: { type: string }
+                    timezone: { type: string }
+                    lessonMinutes: { type: integer }
+    post:
+      tags: [host]
+      summary: ログイン中ユーザーを主催者として登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName]
+              properties:
+                displayName: { type: string }
+                timezone: { type: string, default: Asia/Tokyo }
+                lessonMinutes: { type: integer, default: 60 }
+                minLeadMinutes: { type: integer, default: 60 }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /hosts/{hostId}:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    patch:
+      tags: [host]
+      summary: 主催者設定の変更
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string }
+                timezone: { type: string }
+                lessonMinutes: { type: integer }
+                minLeadMinutes: { type: integer }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
+
+  /hosts/{hostId}/slots:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [public]
+      security: []
+      summary: 空き枠(予約受付ウィンドウ内に自動クリップ)
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots: { type: array, items: { $ref: '#/components/schemas/Slot' } }
+                  bookingHorizonDays: { type: integer }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /hosts/{hostId}/calendars:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/HostCalendar' } } } } }
+    post:
+      tags: [host]
+      summary: 連携カレンダー追加(write_target は 1 件のみ)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [calendarId, role]
+              properties:
+                calendarId: { type: string, example: primary }
+                label: { type: string }
+                role: { type: string, enum: [busy_source, write_target] }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/HostCalendar' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+  /hosts/{hostId}/calendars/{id}:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    delete:
+      tags: [host]
+      responses:
+        '204': { description: No Content }
+
+  /hosts/{hostId}/availability-windows:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AvailabilityWindow' } } } } }
+    post:
+      tags: [host]
+      summary: 営業時間枠追加
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [weekday, startTime, endTime]
+              properties:
+                weekday: { type: integer, minimum: 0, maximum: 6, description: 0=日曜 }
+                startTime: { type: string, pattern: '^\d{2}:\d{2}$', example: '10:00' }
+                endTime: { type: string, pattern: '^\d{2}:\d{2}$', example: '18:00' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/AvailabilityWindow' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+  /hosts/{hostId}/availability-windows/{id}:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    delete:
+      tags: [host]
+      responses:
+        '204': { description: No Content }
+
+  /hosts/{hostId}/bookings:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      summary: 主催者の全予約(生徒情報付き)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - { $ref: '#/components/schemas/Booking' }
+                    - type: object
+                      properties:
+                        student: { $ref: '#/components/schemas/StudentSummary' }
+  /hosts/{hostId}/bookings/{id}/fee-paid:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    post:
+      tags: [host]
+      summary: キャンセルフィーの入金確認
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Booking' } } } }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /hosts/{hostId}/change-requests:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [host]
+      summary: 変更要求一覧(既定は pending)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected, all], default: pending } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - { $ref: '#/components/schemas/ChangeRequest' }
+                    - type: object
+                      properties:
+                        optionLabel: { type: string }
+                        booking: { $ref: '#/components/schemas/Booking' }
+                        student: { $ref: '#/components/schemas/StudentSummary' }
+  /hosts/{hostId}/change-requests/{id}/decision:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    post:
+      tags: [host]
+      summary: 変更要求の承認・却下
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                note: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request: { $ref: '#/components/schemas/ChangeRequest' }
+                  booking: { $ref: '#/components/schemas/Booking' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /bookings:
+    get:
+      tags: [student]
+      summary: 自分の予約一覧
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/StudentBooking' } } } } }
+    post:
+      tags: [student]
+      summary: 予約作成(40 日先まで・空き枠のみ)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId, startAt]
+              properties:
+                hostId: { type: string }
+                startAt: { type: string, format: date-time }
+                note: { type: string }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/StudentBooking' } } } }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /bookings/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [student]
+      summary: 予約詳細(変更要求履歴付き)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: '#/components/schemas/StudentBooking' }
+                  - type: object
+                    properties:
+                      changeRequests: { type: array, items: { $ref: '#/components/schemas/ChangeRequest' } }
+  /bookings/{id}/change:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      tags: [student]
+      summary: キャンセル・変更
+      description: |
+        レッスン開始まで 14 日以上: 即時反映(200, type=applied)。
+        14 日未満: message と option が必須。変更要求を作成して承認待ち(202, type=pending_approval)。
+        kind=reschedule または option=reschedule_within_two_weeks では proposedStartAt(元の日から前後 14 日以内)が必須。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [cancel, reschedule] }
+                message: { type: string, description: 直前変更時は必須 }
+                option: { $ref: '#/components/schemas/LateChangeOption' }
+                proposedStartAt: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 即時反映
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [applied] }
+                  booking: { $ref: '#/components/schemas/Booking' }
+        '202':
+          description: 承認待ち
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [pending_approval] }
+                  booking: { $ref: '#/components/schemas/Booking' }
+                  request: { $ref: '#/components/schemas/ChangeRequest' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+
+  /hosts/{hostId}/google/connect:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [google]
+      summary: Google 認可 URL
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { url: { type: string } } } } } }
+  /hosts/{hostId}/google/status:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    get:
+      tags: [google]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { connected: { type: boolean } } } } } }
+  /hosts/{hostId}/google:
+    parameters: [{ $ref: '#/components/parameters/hostId' }]
+    delete:
+      tags: [google]
+      summary: 連携解除
+      responses:
+        '204': { description: No Content }
+  /google/callback:
+    get:
+      tags: [google]
+      security: []
+      summary: Google からのリダイレクト先(state=hostId)
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: 連携完了(text/plain) }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT, description: Supabase Auth の access_token }
+    devHeader: { type: apiKey, in: header, name: x-dev-user-email, description: AUTH_MODE=dev のときのみ }
+  parameters:
+    hostId: { name: hostId, in: path, required: true, schema: { type: string } }
+    id: { name: id, in: path, required: true, schema: { type: string } }
+  responses:
+    Error:
+      description: エラー
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    enum: [validation, outside_booking_window, late_change_requires_request, forbidden, not_found, slot_unavailable, change_request_pending, invalid_state, calendar_error, internal]
+                  message: { type: string }
+                  details: {}
+  schemas:
+    LateChangeOption:
+      type: string
+      enum: [request_approval, reschedule_within_two_weeks, pay_cancellation_fee]
+      description: 承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う
+    Host:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        displayName: { type: string }
+        timezone: { type: string }
+        lessonMinutes: { type: integer }
+        minLeadMinutes: { type: integer }
+        createdAt: { type: string, format: date-time }
+    HostCalendar:
+      type: object
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        calendarId: { type: string }
+        label: { type: string }
+        role: { type: string, enum: [busy_source, write_target] }
+    AvailabilityWindow:
+      type: object
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        weekday: { type: integer }
+        startTime: { type: string }
+        endTime: { type: string }
+    Slot:
+      type: object
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+    StudentSummary:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        name: { type: string }
+    Booking:
+      type: object
+      properties:
+        id: { type: string }
+        hostId: { type: string }
+        studentId: { type: string }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        status: { type: string, enum: [confirmed, cancelled] }
+        calendarEventId: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        cancellationFeeStatus: { type: string, enum: [none, pending, paid] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    StudentBooking:
+      allOf:
+        - { $ref: '#/components/schemas/Booking' }
+        - type: object
+          properties:
+            requiresApprovalToChange:
+              type: boolean
+              description: 今キャンセル・変更すると主催者承認が必要か(開始まで 14 日未満)
+    ChangeRequest:
+      type: object
+      properties:
+        id: { type: string }
+        bookingId: { type: string }
+        hostId: { type: string }
+        studentId: { type: string }
+        kind: { type: string, enum: [cancel, reschedule] }
+        option: { $ref: '#/components/schemas/LateChangeOption' }
+        message: { type: string }
+        proposedStartAt: { type: [string, 'null'], format: date-time }
+        status: { type: string, enum: [pending, approved, rejected] }
+        decisionNote: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        decidedAt: { type: [string, 'null'], format: date-time }
