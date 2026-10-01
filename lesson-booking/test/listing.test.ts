@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PAST_BOOKINGS_DAYS } from '../src/http/app.js';
+import { PAST_BOOKINGS_DAYS } from '../src/http/common.js';
 import { devUser, insertBooking, jst, setupWorld, startApi, type TestApi, type TestWorld } from './helpers.js';
 
 const TEACHER = devUser('teacher@example.com', '講師A');
