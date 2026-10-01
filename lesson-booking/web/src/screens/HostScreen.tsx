@@ -14,7 +14,7 @@ import type {
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../components/ui';
 import { OrgTab } from './OrgTab';
-import { WEEKDAY_JA, fmtFull, fmtRange, yen } from '../lib/format';
+import { WEEKDAY_JA, daysLabel, fmtFull, fmtRange, yen } from '../lib/format';
 
 type Tab = 'requests' | 'bookings' | 'org' | 'settings';
 
@@ -126,7 +126,7 @@ function RequestsTab({ host, rules }: { host: Host; rules: Rules }) {
         </select>
       </div>
       <Notice>
-        開始まで{rules.lateChangeThresholdDays}日未満の申請です。承認すると予約がキャンセルまたは振替され、Google カレンダーにも反映されます。却下すると元の予約が維持されます。
+        開始まで{host.lateChangeThresholdDays}日未満の申請です(設定で変更できます)。承認すると予約がキャンセルまたは振替され、Google カレンダーにも反映されます。却下すると元の予約が維持されます。
       </Notice>
       <ErrorBanner error={error} onClose={() => setError(null)} />
       {list === null && <Spinner />}
@@ -380,6 +380,8 @@ function SettingsTab({
     lessonMinutes: host.lessonMinutes,
     minLeadMinutes: host.minLeadMinutes,
     rescheduleRangeDays: host.rescheduleRangeDays,
+    lateChangeThresholdDays: host.lateChangeThresholdDays,
+    bookingHorizonDays: host.bookingHorizonDays,
   });
   const [win, setWin] = useState({ weekday: 1, startTime: '10:00', endTime: '18:00' });
   const [cal, setCal] = useState<{ calendarId: string; label: string; role: HostCalendar['role'] }>({ calendarId: '', label: '', role: 'busy_source' });
@@ -491,6 +493,48 @@ function SettingsTab({
             )}
           </>
         )}
+      </section>
+
+      <section className="card space-y-3">
+        <h2 className="font-semibold">予約・キャンセルのルール</h2>
+        <PolicyField
+          id="h-horizon"
+          label="予約を受け付ける期間"
+          before="今日から"
+          after="日先まで"
+          limits={rules.policyLimits.bookingHorizonDays}
+          value={form.bookingHorizonDays}
+          onChange={(v) => setForm({ ...form, bookingHorizonDays: v })}
+          help="生徒の予約ページに表示する空き枠の範囲です。"
+        />
+        <PolicyField
+          id="h-threshold"
+          label="キャンセル・変更を承認制にする時期"
+          before="レッスン開始の"
+          after="日前から"
+          limits={rules.policyLimits.lateChangeThresholdDays}
+          value={form.lateChangeThresholdDays}
+          onChange={(v) => setForm({ ...form, lateChangeThresholdDays: v })}
+          help={
+            form.lateChangeThresholdDays > 0
+              ? `開始${daysLabel(form.lateChangeThresholdDays)}前を過ぎたキャンセル・変更は、生徒がメッセージと対応方法を添えて申請し、あなたが承認します。それより前はすぐに反映されます。`
+              : '0 日にすると承認制にならず、開始前ならいつでもすぐに反映されます。'
+          }
+        />
+        <PolicyField
+          id="h-range"
+          label="振替を受け付ける期間"
+          before="元のレッスン日から前後"
+          after="日以内"
+          limits={rules.policyLimits.rescheduleRangeDays}
+          value={form.rescheduleRangeDays}
+          onChange={(v) => setForm({ ...form, rescheduleRangeDays: v })}
+          help={`承認制の期間に振替を申請するとき、生徒が選べる日時の範囲です。選択肢は「${daysLabel(form.rescheduleRangeDays)}以内の別日に振替を希望する」と表示されます。`}
+        />
+        <p className="text-xs text-stone-500">変更は今後の操作から適用されます。すでに受け付けた申請は、そのまま承認・却下できます。</p>
+        <div className="flex justify-end">
+          <button type="button" className="btn-primary" onClick={() => api.updateHost(host.id, form).then((h) => { onHostUpdated(h); load(); }).catch(setError)}>保存</button>
+        </div>
       </section>
 
       <section className="card space-y-3">
@@ -611,29 +655,6 @@ function SettingsTab({
             <label className="label" htmlFor="h-lead">受付締切(開始の何分前まで)</label>
             <input id="h-lead" className="input" type="number" min={0} step={30} value={form.minLeadMinutes} onChange={(e) => setForm({ ...form, minLeadMinutes: Number(e.target.value) })} />
           </div>
-        </div>
-        <div>
-          <label className="label" htmlFor="h-range">
-            振替を受け付ける期間(元のレッスン日から前後{rules.rescheduleRangeLimits.min}〜{rules.rescheduleRangeLimits.max}日)
-          </label>
-          <div className="flex items-center gap-2">
-            <span className="text-sm">前後</span>
-            <input
-              id="h-range"
-              className="input w-24"
-              type="number"
-              min={rules.rescheduleRangeLimits.min}
-              max={rules.rescheduleRangeLimits.max}
-              value={form.rescheduleRangeDays}
-              onChange={(e) => setForm({ ...form, rescheduleRangeDays: Number(e.target.value) })}
-            />
-            <span className="text-sm">日以内</span>
-          </div>
-          <p className="mt-1 text-xs text-stone-500">
-            開始2週間前を過ぎた振替の申請で、生徒が選べる日時の範囲です。生徒の選択肢は「
-            {form.rescheduleRangeDays % 7 === 0 ? `${form.rescheduleRangeDays / 7}週間` : `${form.rescheduleRangeDays}日`}
-            以内の別日に振替を希望する」と表示されます。変更前に受け付けた申請は、そのまま承認できます。
-          </p>
         </div>
         <div>
           <label className="label" htmlFor="h-bio">紹介文(予約ページに表示)</label>
@@ -775,6 +796,48 @@ function SettingsTab({
         ]}
         onDeleted={onDeleted}
       />
+    </div>
+  );
+}
+
+function PolicyField({
+  id,
+  label,
+  before,
+  after,
+  limits,
+  value,
+  onChange,
+  help,
+}: {
+  id: string;
+  label: string;
+  before: string;
+  after: string;
+  limits: { min: number; max: number };
+  value: number;
+  onChange: (v: number) => void;
+  help: string;
+}) {
+  return (
+    <div>
+      <label className="label" htmlFor={id}>
+        {label}({limits.min}〜{limits.max}日)
+      </label>
+      <div className="flex items-center gap-2">
+        <span className="text-sm">{before}</span>
+        <input
+          id={id}
+          className="input w-24"
+          type="number"
+          min={limits.min}
+          max={limits.max}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        <span className="text-sm">{after}</span>
+      </div>
+      <p className="mt-1 text-xs text-stone-500">{help}</p>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { api } from '../api/client';
 import type { PublicHost, Rules, Slot, StudentBooking } from '../api/types';
 import { SlotPicker } from '../components/SlotPicker';
 import { ErrorBanner, Notice, Spinner } from '../components/ui';
-import { fmtRange } from '../lib/format';
+import { daysLabel, fmtRange } from '../lib/format';
 
 interface Props {
   slug: string;
@@ -77,7 +77,9 @@ export function BookScreen({ slug, rules, signedIn, onRequireLogin, onBooked }: 
       <div className="card space-y-1">
         <h1 className="text-lg font-semibold">{host.displayName}</h1>
         {host.bio && <p className="text-sm text-stone-700 whitespace-pre-wrap">{host.bio}</p>}
-        <div className="text-xs text-stone-500">1回 {host.lessonMinutes}分 · 予約は{rules.bookingHorizonDays}日先まで</div>
+        <div className="text-xs text-stone-500">1回 {host.lessonMinutes}分 · 予約は{host.bookingHorizonDays}日先まで
+          {host.lateChangeThresholdDays > 0 && ` · 開始${daysLabel(host.lateChangeThresholdDays)}前からのキャンセル・変更は講師の承認制`}
+        </div>
       </div>
 
       <div className="card space-y-3">

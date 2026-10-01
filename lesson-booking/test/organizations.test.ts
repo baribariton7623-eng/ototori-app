@@ -26,6 +26,8 @@ async function newHost(email: string, name: string, slug: string): Promise<Host>
     timezone: 'Asia/Tokyo',
     lessonMinutes: 60,
     rescheduleRangeDays: 7,
+    lateChangeThresholdDays: 14,
+    bookingHorizonDays: 40,
     minLeadMinutes: 60,
   });
 }

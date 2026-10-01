@@ -94,6 +94,8 @@ export const api = {
         | 'lessonMinutes'
         | 'minLeadMinutes'
         | 'rescheduleRangeDays'
+        | 'lateChangeThresholdDays'
+        | 'bookingHorizonDays'
         | 'cancellationFeeAmount'
         | 'feeMethods'
         | 'bankTransferInfo'

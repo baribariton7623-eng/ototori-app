@@ -46,8 +46,15 @@ paths:
                         plan: { type: string, enum: [free, pro] }
                         label: { type: string }
                         limits: { type: object }
-                  bookingHorizonDays: { type: integer, example: 40 }
-                  lateChangeThresholdDays: { type: integer, example: 14 }
+                  bookingHorizonDays: { type: integer, example: 40, description: 既定値(実際は講師ごと) }
+                  lateChangeThresholdDays: { type: integer, example: 14, description: 既定値(実際は講師ごと) }
+                  policyLimits:
+                    type: object
+                    description: 講師が設定できるルールの上下限
+                    properties:
+                      bookingHorizonDays: { type: object, properties: { min: { type: integer }, max: { type: integer } } }
+                      lateChangeThresholdDays: { type: object, properties: { min: { type: integer }, max: { type: integer } } }
+                      rescheduleRangeDays: { type: object, properties: { min: { type: integer }, max: { type: integer } } }
                   rescheduleRangeDays: { type: integer, example: 7, description: 振替期間の既定値(実際は講師ごと) }
                   rescheduleRangeLimits:
                     type: object
@@ -135,6 +142,8 @@ paths:
                 lessonMinutes: { type: integer, default: 60 }
                 minLeadMinutes: { type: integer, default: 60 }
                 rescheduleRangeDays: { type: integer, minimum: 1, maximum: 30, default: 7 }
+                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 90, default: 14 }
+                bookingHorizonDays: { type: integer, minimum: 1, maximum: 180, default: 40 }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
         '409': { $ref: '#/components/responses/Error' }
@@ -158,6 +167,8 @@ paths:
                 lessonMinutes: { type: integer }
                 minLeadMinutes: { type: integer }
                 rescheduleRangeDays: { type: integer, minimum: 1, maximum: 30, description: 振替期間(元のレッスン日から前後の日数) }
+                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 90, description: 開始の何日前から承認制にするか }
+                bookingHorizonDays: { type: integer, minimum: 1, maximum: 180, description: 何日先まで予約を受け付けるか }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
 
@@ -863,6 +874,8 @@ components:
         timezone: { type: string }
         lessonMinutes: { type: integer }
         rescheduleRangeDays: { type: integer, description: 振替期間(元のレッスン日から前後の日数) }
+        lateChangeThresholdDays: { type: integer, description: 開始の何日前から承認制か(0 なら承認制なし) }
+        bookingHorizonDays: { type: integer, description: 何日先まで予約できるか }
         cancellationFeeAmount: { type: [integer, 'null'] }
         onlineFeePayment: { type: boolean }
         feeMethods: { type: array, items: { $ref: '#/components/schemas/FeeMethod' }, description: 生徒が今選べる支払い方法 }
@@ -938,7 +951,7 @@ components:
           properties:
             requiresApprovalToChange:
               type: boolean
-              description: 今キャンセル・変更すると主催者承認が必要か(開始まで 14 日未満)
+              description: 今キャンセル・変更すると主催者承認が必要か(開始まで講師の lateChangeThresholdDays 日未満)
             feePayableOnline:
               type: boolean
               description: 未払いのキャンセルフィーをオンラインで払えるか
@@ -948,6 +961,9 @@ components:
             rescheduleRangeDays:
               type: integer
               description: この予約の講師の振替期間
+            lateChangeThresholdDays:
+              type: integer
+              description: この予約の講師が、開始の何日前から承認制にしているか
     ChangeRequest:
       type: object
       properties:

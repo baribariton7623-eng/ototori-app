@@ -512,3 +512,26 @@ describe('振替期間の設定 API', () => {
     await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { rescheduleRangeDays: 7 });
   });
 });
+
+describe('講師ごとのルール API', () => {
+  it('承認制の日数と予約期間を設定でき、範囲外は 400。公開情報・予約一覧・空き枠に反映される', async () => {
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { lateChangeThresholdDays: -1 })).status).toBe(400);
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { lateChangeThresholdDays: 91 })).status).toBe(400);
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { bookingHorizonDays: 0 })).status).toBe(400);
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { bookingHorizonDays: 181 })).status).toBe(400);
+    const ok = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { lateChangeThresholdDays: 3, bookingHorizonDays: 20 });
+    expect(ok.json).toMatchObject({ lateChangeThresholdDays: 3, bookingHorizonDays: 20 });
+
+    const pub = await call('GET', '/hosts/by-slug/teacher-a', {});
+    expect(pub.json).toMatchObject({ lateChangeThresholdDays: 3, bookingHorizonDays: 20 });
+    expect((await call('GET', `/hosts/${w.host.id}/slots`, {})).json.bookingHorizonDays).toBe(20);
+    expect((await call('GET', '/rules', {})).json.policyLimits.lateChangeThresholdDays).toEqual({ min: 0, max: 90 });
+
+    // 5 日後のレッスンは 3 日設定なら承認制ではない
+    const S7 = { 'x-dev-user-email': 'student7@example.com' };
+    const b = await call('POST', '/bookings', S7, { hostId: w.host.id, startAt: jst('2026-10-06T17:00:00').toISOString() });
+    expect(b.json).toMatchObject({ requiresApprovalToChange: false, lateChangeThresholdDays: 3 });
+
+    await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { lateChangeThresholdDays: 14, bookingHorizonDays: 40 });
+  });
+});

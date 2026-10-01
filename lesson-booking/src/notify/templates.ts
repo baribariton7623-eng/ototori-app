@@ -1,5 +1,5 @@
 import { canCollectFeeOnline } from '../domain/plans.js';
-import { FEE_METHOD_LABELS, lateChangeOptionLabel } from '../domain/rules.js';
+import { FEE_METHOD_LABELS, daysLabel, lateChangeOptionLabel } from '../domain/rules.js';
 import type { Booking, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
 import type { EmailMessage } from './EmailSender.js';
 
@@ -57,8 +57,10 @@ export function bookingCreatedMails(ctx: TemplateContext, host: Host, student: S
       subject: `【予約確定】${host.displayName} ${fmt(booking.startAt, tz)}`,
       text:
         `${studentName(student)}\n\n${host.displayName} のレッスンの予約が確定しました。\n\n日時: ${when}${note}\n\n` +
-        `予約の確認・キャンセル・変更: ${links(ctx).mine}\n` +
-        `※レッスン開始の2週間前を過ぎると、キャンセル・変更には講師の承認が必要になります。` +
+        `予約の確認・キャンセル・変更: ${links(ctx).mine}` +
+        (host.lateChangeThresholdDays > 0
+          ? `\n※レッスン開始の${daysLabel(host.lateChangeThresholdDays)}前を過ぎると、キャンセル・変更には講師の承認が必要になります。`
+          : '') +
         footer(ctx),
     },
     {
@@ -91,7 +93,7 @@ export function bookingChangedMails(
       {
         to: host.email,
         subject: `【キャンセル】${student.name || student.email} ${fmt(before.startAt, tz)}`,
-        text: `${host.displayName} さん\n\n生徒が予約をキャンセルしました(レッスン開始の2週間以上前のため即時反映)。\n\n生徒: ${student.name || '(名前未設定)'} <${student.email}>\n日時: ${range(before, tz)}\n\n予約一覧: ${links(ctx).host}` + footer(ctx),
+        text: `${host.displayName} さん\n\n生徒が予約をキャンセルしました(${immediateReason(host)})。\n\n生徒: ${student.name || '(名前未設定)'} <${student.email}>\n日時: ${range(before, tz)}\n\n予約一覧: ${links(ctx).host}` + footer(ctx),
       },
     ];
   }
@@ -104,7 +106,7 @@ export function bookingChangedMails(
     {
       to: host.email,
       subject: `【日時変更】${student.name || student.email} ${fmt(after.startAt, tz)}`,
-      text: `${host.displayName} さん\n\n生徒がレッスンの日時を変更しました(レッスン開始の2週間以上前のため即時反映)。\n\n生徒: ${student.name || '(名前未設定)'} <${student.email}>\n変更前: ${range(before, tz)}\n変更後: ${range(after, tz)}\n\n予約一覧: ${links(ctx).host}` + footer(ctx),
+      text: `${host.displayName} さん\n\n生徒がレッスンの日時を変更しました(${immediateReason(host)})。\n\n生徒: ${student.name || '(名前未設定)'} <${student.email}>\n変更前: ${range(before, tz)}\n変更後: ${range(after, tz)}\n\n予約一覧: ${links(ctx).host}` + footer(ctx),
     },
   ];
 }
@@ -120,7 +122,7 @@ export function changeRequestedMails(ctx: TemplateContext, host: Host, student: 
       to: host.email,
       subject: `【要承認】${student.name || student.email} から${kindJa}の申請`,
       text:
-        `${host.displayName} さん\n\nレッスン開始まで2週間未満の${kindJa}申請が届きました。承認または却下してください。\n\n` +
+        `${host.displayName} さん\n\nレッスン開始まで${daysLabel(host.lateChangeThresholdDays)}未満の${kindJa}申請が届きました。承認または却下してください。\n\n` +
         `生徒: ${student.name || '(名前未設定)'} <${student.email}>\n対象: ${range(booking, tz)}\n対応方法: ${option}${proposed}\n\n` +
         `メッセージ:\n${request.message}\n\n承認・却下: ${links(ctx).host}` +
         footer(ctx),
@@ -192,8 +194,11 @@ export function lessonReminderMails(ctx: TemplateContext, host: Host, student: S
       text:
         `${studentName(student)}\n\n${host.displayName} のレッスンのリマインドです。\n\n日時: ${range(booking, tz)}` +
         (booking.note ? `\n備考: ${booking.note}` : '') +
-        `\n\n予約の確認: ${links(ctx).mine}\n` +
-        `※開始2週間前を過ぎているため、キャンセル・変更には講師の承認が必要です。` +
+        `\n\n予約の確認: ${links(ctx).mine}` +
+        // リマインドはレッスンの 24 時間以内に送るので、承認制の日数が 1 日以上なら必ず承認制の期間内
+        (host.lateChangeThresholdDays > 0
+          ? `\n※開始${daysLabel(host.lateChangeThresholdDays)}前を過ぎているため、キャンセル・変更には講師の承認が必要です。`
+          : '') +
         footer(ctx),
     },
   ];
@@ -270,4 +275,9 @@ export function orgInvitedMails(ctx: TemplateContext, org: Organization, inviter
         footer(ctx),
     },
   ];
+}
+
+/** 即時反映になった理由の文言 */
+function immediateReason(host: Host): string {
+  return host.lateChangeThresholdDays > 0 ? `レッスン開始の${daysLabel(host.lateChangeThresholdDays)}以上前のため即時反映` : '即時反映';
 }

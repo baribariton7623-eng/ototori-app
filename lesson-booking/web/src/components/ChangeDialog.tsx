@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { api } from '../api/client';
 import type { ChangeKind, ChangeOutcome, FeeMethod, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
-import { addDays, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
+import { addDays, daysLabel, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
 
@@ -146,10 +146,14 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
 
         {late ? (
           <Notice tone="warn">
-            開始まで{rules.lateChangeThresholdDays}日未満のため、主催者の承認が必要です。事情と対応方法を入力してください。承認されるまで予約はそのまま維持されます。
+            開始まで{daysLabel(booking.lateChangeThresholdDays)}未満のため、主催者の承認が必要です。事情と対応方法を入力してください。承認されるまで予約はそのまま維持されます。
           </Notice>
         ) : (
-          <Notice>開始まで{rules.lateChangeThresholdDays}日以上あるため、すぐに反映されます。</Notice>
+          <Notice>
+            {booking.lateChangeThresholdDays > 0
+              ? `開始まで${daysLabel(booking.lateChangeThresholdDays)}以上あるため、すぐに反映されます。`
+              : 'この講師のレッスンは、開始前ならすぐに反映されます。'}
+          </Notice>
         )}
 
         <fieldset>

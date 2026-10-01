@@ -58,7 +58,7 @@ export class BookingService {
   async createBooking(input: CreateBookingInput): Promise<Booking> {
     const host = await this.availability.getHost(input.hostId);
     const now = this.clock.now();
-    assertWithinBookingWindow(input.startAt, now, host.minLeadMinutes);
+    assertWithinBookingWindow(input.startAt, now, host.minLeadMinutes, host.bookingHorizonDays);
 
     if (!(await this.availability.isSlotAvailable(host, input.startAt))) {
       throw new DomainError('slot_unavailable', 'この枠は予約できません(営業時間外、または既に予定があります)', {
@@ -106,8 +106,8 @@ export class BookingService {
 
   /**
    * 生徒によるキャンセル/変更。
-   * - レッスン開始まで14日以上: 即時反映
-   * - 14日未満: メッセージ+対応方法が必須。変更要求を作成して主催者の承認待ちにする(予約は確定状態のまま)
+   * - レッスン開始まで講師の lateChangeThresholdDays 日以上: 即時反映
+   * - それ未満: メッセージ+対応方法が必須。変更要求を作成して主催者の承認待ちにする(予約は確定状態のまま)
    */
   async requestChange(input: ChangeInput): Promise<ChangeOutcome> {
     const booking = await this.getBookingForStudent(input.bookingId, input.student);
@@ -129,7 +129,7 @@ export class BookingService {
 
     const candidates = input.proposedStartAts ?? [];
 
-    if (!isLateChange(lessonStart, now)) {
+    if (!isLateChange(lessonStart, now, host.lateChangeThresholdDays)) {
       // 猶予あり → 即時反映。承認がないので変更先は 1 つに決まっている必要がある
       let newStart: Date | null = null;
       if (input.kind === 'reschedule') {
@@ -150,6 +150,7 @@ export class BookingService {
       message: input.message,
       proposedStartAts: candidates,
       rescheduleRangeDays: host.rescheduleRangeDays,
+      lateChangeThresholdDays: host.lateChangeThresholdDays,
     });
     let feeMethod: FeeMethod | null = null;
     if (validated.option === 'pay_cancellation_fee') {
@@ -169,7 +170,7 @@ export class BookingService {
     }
     // 希望日時はすべて、受付ウィンドウ内かつ申請時点で空いていること(候補の枠は確保しない。承認時に再確認する)
     for (const [i, c] of validated.proposedStartAts.entries()) {
-      assertWithinBookingWindow(c, now, host.minLeadMinutes);
+      assertWithinBookingWindow(c, now, host.minLeadMinutes, host.bookingHorizonDays);
       if (!(await this.availability.isSlotAvailable(host, c, booking.id))) {
         throw new DomainError('slot_unavailable', `第${i + 1}希望の枠は予約できません。別の日時を選んでください`, {
           proposedStartAt: c.toISOString(),
@@ -404,7 +405,7 @@ export class BookingService {
 
   private async applyReschedule(host: Host, booking: Booking, newStart: Date): Promise<Booking> {
     const now = this.clock.now();
-    assertWithinBookingWindow(newStart, now, host.minLeadMinutes);
+    assertWithinBookingWindow(newStart, now, host.minLeadMinutes, host.bookingHorizonDays);
     if (!(await this.availability.isSlotAvailable(host, newStart, booking.id))) {
       throw new DomainError('slot_unavailable', '振替先の枠は予約できません', { startAt: newStart.toISOString() });
     }

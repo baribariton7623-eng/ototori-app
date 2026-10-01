@@ -25,10 +25,10 @@ export function LandingScreen({ rules, onLogin }: { rules: Rules; onLogin: () =>
 
       <section className="grid sm:grid-cols-3 gap-3">
         <Feature title="カレンダーの空きが予約枠に">
-          連携した Google カレンダーの予定を自動で避け、曜日ごとの受付時間から空き枠だけを表示します。予約は{rules.bookingHorizonDays}日先まで。複数のカレンダーを連携できます。
+          連携した Google カレンダーの予定を自動で避け、曜日ごとの受付時間から空き枠だけを表示します。何日先まで受け付けるかも講師が決められます(既定{rules.bookingHorizonDays}日)。複数のカレンダーを連携できます。
         </Feature>
-        <Feature title={`${rules.lateChangeThresholdDays}日前からは承認制`}>
-          レッスン開始の{rules.lateChangeThresholdDays}日前を過ぎたキャンセル・変更は、生徒がメッセージと対応方法を選んで申請。講師が承認するまで予約は有効なままです。
+        <Feature title="直前のキャンセルは承認制">
+          レッスン開始の○日前(講師が設定。既定{rules.lateChangeThresholdDays}日)を過ぎたキャンセル・変更は、生徒がメッセージと対応方法を選んで申請。講師が承認するまで予約は有効なままです。
         </Feature>
         <Feature title="振替・キャンセルフィーも選択式">
           申請時に「承認を求める」「別日に振替(期間は講師が設定)」「キャンセルフィーを支払う」から選択。フィーはカード・振込・次回手渡しから支払い方法も選べます。振替先は空き枠から選ぶので、やり取りが一度で済みます。

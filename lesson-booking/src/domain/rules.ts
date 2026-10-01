@@ -2,11 +2,18 @@ import { DomainError } from './errors.js';
 import { addDays, addMinutes, diffDays } from './time.js';
 import type { Booking, ChangeKind, FeeMethod, LateChangeOption } from './types.js';
 
-/** 予約できるのは今日から何日先まで */
+/** 予約できるのは今から何日先までか(既定値。講師ごとに Host.bookingHorizonDays で変更できる) */
 export const BOOKING_HORIZON_DAYS = 40;
+export const MIN_BOOKING_HORIZON_DAYS = 1;
+export const MAX_BOOKING_HORIZON_DAYS = 180;
 
-/** レッスン開始までこの日数未満のキャンセル・変更は主催者承認が必要 */
+/**
+ * レッスン開始までこの日数未満のキャンセル・変更は主催者承認が必要(既定値。Host.lateChangeThresholdDays で変更できる)。
+ * 0 にすると承認制にならず、開始前ならいつでも即時反映
+ */
 export const LATE_CHANGE_THRESHOLD_DAYS = 14;
+export const MIN_LATE_CHANGE_THRESHOLD_DAYS = 0;
+export const MAX_LATE_CHANGE_THRESHOLD_DAYS = 90;
 
 /** 振替先の範囲(元のレッスン日から前後の日数)の既定値。講師ごとに変更できる(Host.rescheduleRangeDays) */
 export const DEFAULT_RESCHEDULE_RANGE_DAYS = 7;
@@ -52,32 +59,46 @@ export const FEE_METHOD_LABELS: Record<FeeMethod, string> = {
 };
 
 /** 予約受付ウィンドウ [開始, 終了) を返す */
-export function bookingWindow(now: Date, minLeadMinutes: number): { from: Date; to: Date } {
+export function bookingWindow(
+  now: Date,
+  minLeadMinutes: number,
+  horizonDays: number = BOOKING_HORIZON_DAYS,
+): { from: Date; to: Date } {
   return {
     from: addMinutes(now, minLeadMinutes),
-    to: addDays(now, BOOKING_HORIZON_DAYS),
+    to: addDays(now, horizonDays),
   };
 }
 
 /** 枠が予約受付ウィンドウ内か */
-export function isWithinBookingWindow(startAt: Date, now: Date, minLeadMinutes: number): boolean {
-  const { from, to } = bookingWindow(now, minLeadMinutes);
+export function isWithinBookingWindow(
+  startAt: Date,
+  now: Date,
+  minLeadMinutes: number,
+  horizonDays: number = BOOKING_HORIZON_DAYS,
+): boolean {
+  const { from, to } = bookingWindow(now, minLeadMinutes, horizonDays);
   return startAt.getTime() >= from.getTime() && startAt.getTime() <= to.getTime();
 }
 
-export function assertWithinBookingWindow(startAt: Date, now: Date, minLeadMinutes: number): void {
-  if (!isWithinBookingWindow(startAt, now, minLeadMinutes)) {
+export function assertWithinBookingWindow(
+  startAt: Date,
+  now: Date,
+  minLeadMinutes: number,
+  horizonDays: number = BOOKING_HORIZON_DAYS,
+): void {
+  if (!isWithinBookingWindow(startAt, now, minLeadMinutes, horizonDays)) {
     throw new DomainError(
       'outside_booking_window',
-      `予約できるのは${minLeadMinutes}分後から${BOOKING_HORIZON_DAYS}日先までです`,
-      { startAt: startAt.toISOString(), horizonDays: BOOKING_HORIZON_DAYS, minLeadMinutes },
+      `予約できるのは${minLeadMinutes}分後から${horizonDays}日先までです`,
+      { startAt: startAt.toISOString(), horizonDays, minLeadMinutes },
     );
   }
 }
 
 /** レッスン開始までの残り日数が閾値未満なら「直前変更」 */
-export function isLateChange(lessonStartAt: Date, now: Date): boolean {
-  return diffDays(lessonStartAt, now) < LATE_CHANGE_THRESHOLD_DAYS;
+export function isLateChange(lessonStartAt: Date, now: Date, thresholdDays: number = LATE_CHANGE_THRESHOLD_DAYS): boolean {
+  return diffDays(lessonStartAt, now) < thresholdDays;
 }
 
 /** 振替先が元のレッスン日から前後 rangeDays 日以内か */
@@ -97,6 +118,8 @@ export interface LateChangeInput {
   proposedStartAts: Date[];
   /** 講師の振替期間(元の日から前後の日数)。省略時は既定値 */
   rescheduleRangeDays?: number;
+  /** 講師の承認制の日数。メッセージ文面に使う。省略時は既定値 */
+  lateChangeThresholdDays?: number;
 }
 
 /**
@@ -115,7 +138,7 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
   if (message.length === 0) {
     throw new DomainError(
       'late_change_requires_request',
-      `レッスン開始まで${LATE_CHANGE_THRESHOLD_DAYS}日未満のキャンセル・変更にはメッセージの入力が必要です`,
+      `レッスン開始まで${input.lateChangeThresholdDays ?? LATE_CHANGE_THRESHOLD_DAYS}日未満のキャンセル・変更にはメッセージの入力が必要です`,
       { field: 'message' },
     );
   }

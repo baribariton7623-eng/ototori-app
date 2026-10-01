@@ -29,6 +29,10 @@ import {
   lateChangeOptionLabel,
   LATE_CHANGE_OPTIONS,
   LATE_CHANGE_THRESHOLD_DAYS,
+  MAX_BOOKING_HORIZON_DAYS,
+  MAX_LATE_CHANGE_THRESHOLD_DAYS,
+  MIN_BOOKING_HORIZON_DAYS,
+  MIN_LATE_CHANGE_THRESHOLD_DAYS,
   RESCHEDULE_RANGE_DAYS,
   isLateChange,
 } from '../domain/rules.js';
@@ -93,6 +97,18 @@ const createHostSchema = z.object({
     .int()
     .min(MIN_RESCHEDULE_RANGE_DAYS, `振替期間は${MIN_RESCHEDULE_RANGE_DAYS}〜${MAX_RESCHEDULE_RANGE_DAYS}日で指定してください`)
     .max(MAX_RESCHEDULE_RANGE_DAYS, `振替期間は${MIN_RESCHEDULE_RANGE_DAYS}〜${MAX_RESCHEDULE_RANGE_DAYS}日で指定してください`)
+    .optional(),
+  lateChangeThresholdDays: z
+    .number()
+    .int()
+    .min(MIN_LATE_CHANGE_THRESHOLD_DAYS, `承認制にする日数は${MIN_LATE_CHANGE_THRESHOLD_DAYS}〜${MAX_LATE_CHANGE_THRESHOLD_DAYS}日で指定してください`)
+    .max(MAX_LATE_CHANGE_THRESHOLD_DAYS, `承認制にする日数は${MIN_LATE_CHANGE_THRESHOLD_DAYS}〜${MAX_LATE_CHANGE_THRESHOLD_DAYS}日で指定してください`)
+    .optional(),
+  bookingHorizonDays: z
+    .number()
+    .int()
+    .min(MIN_BOOKING_HORIZON_DAYS, `予約を受け付ける期間は${MIN_BOOKING_HORIZON_DAYS}〜${MAX_BOOKING_HORIZON_DAYS}日で指定してください`)
+    .max(MAX_BOOKING_HORIZON_DAYS, `予約を受け付ける期間は${MIN_BOOKING_HORIZON_DAYS}〜${MAX_BOOKING_HORIZON_DAYS}日で指定してください`)
     .optional(),
   minLeadMinutes: z.number().int().min(0).max(30 * 24 * 60).optional(),
 });
@@ -190,8 +206,14 @@ export function createApp(deps: AppDeps): express.Express {
   /** クライアントが表示に使う業務ルール定数 */
   app.get('/rules', (_req, res) => {
     res.json({
+      // 既定値。実際の値は講師ごと(公開情報の bookingHorizonDays / lateChangeThresholdDays)
       bookingHorizonDays: BOOKING_HORIZON_DAYS,
       lateChangeThresholdDays: LATE_CHANGE_THRESHOLD_DAYS,
+      policyLimits: {
+        bookingHorizonDays: { min: MIN_BOOKING_HORIZON_DAYS, max: MAX_BOOKING_HORIZON_DAYS },
+        lateChangeThresholdDays: { min: MIN_LATE_CHANGE_THRESHOLD_DAYS, max: MAX_LATE_CHANGE_THRESHOLD_DAYS },
+        rescheduleRangeDays: { min: MIN_RESCHEDULE_RANGE_DAYS, max: MAX_RESCHEDULE_RANGE_DAYS },
+      },
       // 既定値。実際の範囲は講師ごと(公開情報の rescheduleRangeDays)
       rescheduleRangeDays: RESCHEDULE_RANGE_DAYS,
       rescheduleRangeLimits: { min: MIN_RESCHEDULE_RANGE_DAYS, max: MAX_RESCHEDULE_RANGE_DAYS },
@@ -278,6 +300,8 @@ function hostRoutes(deps: AppDeps): Router {
       timezone: body.timezone ?? deps.defaultTimezone,
       lessonMinutes: body.lessonMinutes ?? 60,
       rescheduleRangeDays: body.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
+      lateChangeThresholdDays: body.lateChangeThresholdDays ?? LATE_CHANGE_THRESHOLD_DAYS,
+      bookingHorizonDays: body.bookingHorizonDays ?? BOOKING_HORIZON_DAYS,
       minLeadMinutes: body.minLeadMinutes ?? 60,
     });
     res.status(201).json(host);
@@ -510,6 +534,8 @@ function publicHost(h: Host) {
     timezone: h.timezone,
     lessonMinutes: h.lessonMinutes,
     rescheduleRangeDays: h.rescheduleRangeDays,
+    lateChangeThresholdDays: h.lateChangeThresholdDays,
+    bookingHorizonDays: h.bookingHorizonDays,
     cancellationFeeAmount: h.cancellationFeeAmount,
     onlineFeePayment: canCollectFeeOnline(h),
     /** 生徒が今選べる支払い方法(振込先そのものは公開しない) */
@@ -655,7 +681,8 @@ function publicRoutes(deps: AppDeps): Router {
   r.get('/hosts/:hostId/slots', wrap(async (req, res) => {
     const q = slotsQuerySchema.parse(req.query);
     const slots = await deps.availability.listSlots(param(req, 'hostId'), q);
-    res.json({ slots, bookingHorizonDays: BOOKING_HORIZON_DAYS });
+    const host = await deps.availability.getHost(param(req, 'hostId'));
+    res.json({ slots, bookingHorizonDays: host.bookingHorizonDays });
   }));
 
   return r;
@@ -671,7 +698,7 @@ function studentRoutes(deps: AppDeps): Router {
     const student = await requireStudent(req, repos);
     const body = createBookingSchema.parse(req.body);
     const booking = await deps.bookings.createBooking({ hostId: body.hostId, student, startAt: body.startAt, note: body.note });
-    res.status(201).json(decorate(booking, deps.clock.now()));
+    res.status(201).json(decorate(booking, deps.clock.now(), await repos.hosts.findById(booking.hostId)));
   }));
 
   r.get('/bookings', wrap(async (req, res) => {
@@ -683,7 +710,7 @@ function studentRoutes(deps: AppDeps): Router {
     res.json(
       list.map((b) => {
         const host = hosts.get(b.hostId) ?? null;
-        return { ...decorate(b, now), ...feeInfo(b, host), rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS };
+        return { ...decorate(b, now, host), ...feeInfo(b, host) };
       }),
     );
   }));
@@ -694,9 +721,8 @@ function studentRoutes(deps: AppDeps): Router {
     const requests = await repos.changeRequests.listByBooking(booking.id);
     const host = await repos.hosts.findById(booking.hostId);
     res.json({
-      ...decorate(booking, deps.clock.now()),
+      ...decorate(booking, deps.clock.now(), host),
       ...feeInfo(booking, host),
-      rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
       changeRequests: requests,
     });
   }));
@@ -791,11 +817,14 @@ function feeInfo(b: FeeFields, host: Host | null): { feePayableOnline: boolean; 
   return out;
 }
 
-/** 予約に「今の時点で直前変更扱いか」を付ける(クライアントの文言分岐用) */
-function decorate<T extends { startAt: string; status: string }>(booking: T, now: Date) {
+/** 予約に「今の時点で直前変更扱いか」と講師のルールを付ける(クライアントの文言分岐用) */
+function decorate<T extends { startAt: string; status: string }>(booking: T, now: Date, host: Host | null) {
+  const threshold = host?.lateChangeThresholdDays ?? LATE_CHANGE_THRESHOLD_DAYS;
   return {
     ...booking,
-    requiresApprovalToChange: booking.status === 'confirmed' && isLateChange(new Date(booking.startAt), now),
+    requiresApprovalToChange: booking.status === 'confirmed' && isLateChange(new Date(booking.startAt), now, threshold),
+    lateChangeThresholdDays: threshold,
+    rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
   };
 }
 

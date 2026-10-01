@@ -32,7 +32,7 @@ export class AvailabilityService {
   async listSlots(hostId: string, query: SlotQuery = {}): Promise<Slot[]> {
     const host = await this.getHost(hostId);
     const now = this.clock.now();
-    const win = bookingWindow(now, host.minLeadMinutes);
+    const win = bookingWindow(now, host.minLeadMinutes, host.bookingHorizonDays);
     const from = query.from && query.from > win.from ? query.from : win.from;
     const to = query.to && query.to < win.to ? query.to : win.to;
     if (from > to) return [];

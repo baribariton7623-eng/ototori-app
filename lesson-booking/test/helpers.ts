@@ -93,6 +93,8 @@ export async function setupWorld(): Promise<TestWorld> {
     timezone: 'Asia/Tokyo',
     lessonMinutes: 60,
     rescheduleRangeDays: 7,
+    lateChangeThresholdDays: 14,
+    bookingHorizonDays: 40,
     minLeadMinutes: 60,
   });
   for (const weekday of [1, 2, 3, 4, 5] as Weekday[]) {

@@ -240,6 +240,8 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
       timezone: 'Asia/Tokyo',
       lessonMinutes: 60,
       rescheduleRangeDays: 7,
+      lateChangeThresholdDays: 14,
+      bookingHorizonDays: 40,
       minLeadMinutes: 0,
     });
     await expect(w.bookings.decideRequest(r.request.id, otherHost.id, 'approve')).rejects.toBeInstanceOf(DomainError);

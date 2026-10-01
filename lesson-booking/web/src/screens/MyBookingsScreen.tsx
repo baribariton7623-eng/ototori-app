@@ -4,7 +4,7 @@ import type { ChangeOutcome, ChangeRequest, Rules, StudentBooking } from '../api
 import { ChangeDialog } from '../components/ChangeDialog';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
-import { fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
+import { daysLabel, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
 
 type Detail = StudentBooking & { changeRequests: ChangeRequest[] };
 
@@ -92,7 +92,7 @@ export function MyBookingsScreen({
               </div>
               {b.requiresApprovalToChange && !pending && (
                 <div className="text-xs text-amber-800">
-                  開始まで{rules.lateChangeThresholdDays}日未満のため、キャンセル・変更には主催者の承認が必要です。
+                  開始まで{daysLabel(b.lateChangeThresholdDays)}未満のため、キャンセル・変更には主催者の承認が必要です。
                 </div>
               )}
               {pending && (
@@ -178,7 +178,7 @@ export function MyBookingsScreen({
         confirmLabel="メールアドレス"
         description={[
           '予約履歴・申請履歴を含むすべての情報が削除されます。',
-          '今後の予約が残っている場合は退会できません。先にキャンセルしてください(開始2週間前を過ぎた予約は講師の承認が必要です)。',
+          '今後の予約が残っている場合は退会できません。先にキャンセルしてください(開始直前の予約は、講師の承認が必要な場合があります)。',
         ]}
         onDeleted={onDeleted}
       />

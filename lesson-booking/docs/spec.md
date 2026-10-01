@@ -18,7 +18,7 @@
 | 空き枠 (slot) | 営業時間枠をレッスン長で刻んだもののうち、連携カレンダーの予定・既存予約と重ならないもの |
 | 予約 (booking) | 生徒がある空き枠を確定させたもの。状態は `confirmed` / `cancelled` |
 | 変更要求 (change request) | 直前のキャンセル・変更に対する承認申請。状態は `pending` / `approved` / `rejected` |
-| 直前 (late) | 操作時点からレッスン開始まで **14 日未満** |
+| 直前 (late) | 操作時点からレッスン開始まで **N 日未満**(N は講師の `lateChangeThresholdDays`、既定 14) |
 
 ## 2. ロールと権限
 
@@ -70,8 +70,8 @@
 
 | 状況 | 挙動 |
 | --- | --- |
-| レッスン開始まで 14 日以上 | 即時反映。キャンセル → `cancelled` + カレンダーイベント削除。変更 → 新枠の空きを確認して日時更新 + イベント更新 |
-| 14 日未満(直前) | **メッセージ(必須)** と **対応方法(3 択、必須)** を添えて変更要求を作成。予約は `confirmed` のまま。主催者の判断を待つ |
+| レッスン開始まで N 日以上(N = 講師の `lateChangeThresholdDays`) | 即時反映。キャンセル → `cancelled` + カレンダーイベント削除。変更 → 新枠の空きを確認して日時更新 + イベント更新 |
+| N 日未満(直前) | **メッセージ(必須)** と **対応方法(3 択、必須)** を添えて変更要求を作成。予約は `confirmed` のまま。主催者の判断を待つ |
 
 対応方法(`LateChangeOption`):
 
@@ -185,7 +185,8 @@ Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイ�
 
 ```
 lb_hosts                    主催者(テナント)
-  id, email(unique), display_name, slug(unique), bio, plan(free|pro), reschedule_range_days(1〜30、既定 7),
+  id, email(unique), display_name, slug(unique), bio, plan(free|pro),
+  reschedule_range_days(1〜30、既定 7), late_change_threshold_days(0〜90、既定 14), booking_horizon_days(1〜180、既定 40),
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
   cancellation_fee_amount, fee_methods(text[]), bank_transfer_info, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at
@@ -347,7 +348,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | キャンセルフィーの支払い方法(カード・振込・手渡し)と講師承認 | 実装済み |
 | 振替の第1〜第3希望と、講師による振替先の選択 | 実装済み |
 | 講師ごとの振替期間、振替候補の自動更新(埋まった枠を外す) | 実装済み |
-| テスト | vitest 107 件、Playwright で主要フローを確認 |
+| 講師ごとの承認制の時期・予約受付期間 | 実装済み |
+| テスト | vitest 114 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |
