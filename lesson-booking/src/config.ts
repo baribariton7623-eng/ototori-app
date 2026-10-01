@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 const schema = z.object({
+  NODE_ENV: z.string().default('development'),
+  /**
+   * 開発・E2E 専用: サーバーの「今」をこの時刻から始める(以後は実時間で進む)。
+   * 本番(NODE_ENV=production)では起動を拒否する
+   */
+  FAKE_NOW: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(8787),
   AUTH_MODE: z.enum(['dev', 'supabase']).default('dev'),
   STORAGE: z.enum(['memory', 'supabase']).default('memory'),
@@ -60,8 +66,41 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       if (!cfg[k]) missing.push(k);
     }
   }
+  if (cfg.FAKE_NOW && Number.isNaN(Date.parse(cfg.FAKE_NOW))) {
+    throw new Error(`FAKE_NOW の日時が不正です: ${cfg.FAKE_NOW}`);
+  }
   if (missing.length > 0) {
     throw new Error(`環境変数が不足しています: ${missing.join(', ')}`);
   }
+  const { errors } = productionProblems(cfg);
+  if (errors.length > 0) {
+    throw new Error(`本番(NODE_ENV=production)では起動できない設定です:\n- ${errors.join('\n- ')}`);
+  }
   return cfg;
+}
+
+/**
+ * 本番で危険な設定の検出。
+ * errors: 起動を拒否する(なりすまし・データ消失・無料でプロになれる等)
+ * warnings: 起動はするがログに出す(機能が動かない設定)
+ */
+export function productionProblems(cfg: Config): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  if (cfg.NODE_ENV !== 'production') return { errors, warnings };
+  if (cfg.AUTH_MODE !== 'supabase') {
+    errors.push('AUTH_MODE=dev は使えません(ヘッダにメールアドレスを書くだけで誰にでもなりすませます)。AUTH_MODE=supabase にしてください');
+  }
+  if (cfg.STORAGE !== 'supabase') errors.push('STORAGE=memory は使えません(再起動でデータが消えます)。STORAGE=supabase にしてください');
+  if (cfg.BILLING !== 'stripe') {
+    errors.push('BILLING=fake は使えません(誰でも無料でプロプランにできる開発用エンドポイントが有効になります)。BILLING=stripe にしてください');
+  }
+  if (cfg.FAKE_NOW) errors.push('FAKE_NOW は開発・E2E 専用です。本番では設定しないでください');
+  if (!cfg.APP_BASE_URL.startsWith('https://')) errors.push(`APP_BASE_URL は https の URL にしてください(現在: ${cfg.APP_BASE_URL})`);
+  if (cfg.CALENDAR !== 'google') warnings.push('CALENDAR=fake のため、Google カレンダーと連携しません');
+  if (cfg.MAIL !== 'resend') warnings.push('MAIL=console のため、通知メールは送信されません(ログに出るだけ)');
+  if (!cfg.CRON_SECRET && cfg.REMINDER_INTERVAL_MINUTES === 0) {
+    warnings.push('CRON_SECRET も REMINDER_INTERVAL_MINUTES も未設定のため、前日リマインドが送られません');
+  }
+  return { errors, warnings };
 }

@@ -6,11 +6,11 @@ import { StripeBillingProvider } from './billing/StripeBillingProvider.js';
 import { StripeFeePaymentProvider } from './billing/StripeFeePaymentProvider.js';
 import { FakeCalendarClient } from './calendar/FakeCalendarClient.js';
 import { GoogleCalendarClient } from './calendar/GoogleCalendarClient.js';
-import { loadConfig } from './config.js';
+import { loadConfig, productionProblems } from './config.js';
 import { createApp } from './http/app.js';
 import { ConsoleEmailSender, ResendEmailSender } from './notify/EmailSender.js';
 import { EmailNotifier } from './notify/EmailNotifier.js';
-import { createInMemoryRepositories, systemClock } from './repo/InMemoryRepositories.js';
+import { createInMemoryRepositories, systemClock, type Clock } from './repo/InMemoryRepositories.js';
 import { createSupabaseRepositories } from './repo/SupabaseRepositories.js';
 import { AccountService, type AccountCleanup } from './services/AccountService.js';
 import { AvailabilityService } from './services/AvailabilityService.js';
@@ -21,11 +21,21 @@ import { OrganizationService } from './services/OrganizationService.js';
 import { ReminderService } from './services/ReminderService.js';
 
 const cfg = loadConfig();
+for (const w of productionProblems(cfg).warnings) console.warn(`[config] ${w}`);
+
+/** FAKE_NOW があれば、その時刻から実時間で進む時計(開発・E2E 専用。本番では loadConfig が拒否する) */
+const clock: Clock = cfg.FAKE_NOW
+  ? (() => {
+      const offset = Date.parse(cfg.FAKE_NOW) - Date.now();
+      console.warn(`[config] FAKE_NOW=${cfg.FAKE_NOW} から時計を開始します(開発・E2E 専用)`);
+      return { now: () => new Date(Date.now() + offset) };
+    })()
+  : systemClock;
 
 const repos =
   cfg.STORAGE === 'supabase'
     ? createSupabaseRepositories(cfg.SUPABASE_URL, cfg.SUPABASE_SERVICE_ROLE_KEY)
-    : createInMemoryRepositories(systemClock);
+    : createInMemoryRepositories(clock);
 
 const google =
   cfg.CALENDAR === 'google'
@@ -39,8 +49,8 @@ const calendar = google ?? new FakeCalendarClient();
 const mailSender = cfg.MAIL === 'resend' ? new ResendEmailSender(cfg.RESEND_API_KEY, cfg.MAIL_FROM) : new ConsoleEmailSender();
 const notifier = new EmailNotifier(mailSender, { serviceName: cfg.SERVICE_NAME, appBaseUrl: cfg.APP_BASE_URL });
 
-const availability = new AvailabilityService(repos, calendar, systemClock);
-const bookings = new BookingService(repos, calendar, availability, systemClock, notifier);
+const availability = new AvailabilityService(repos, calendar, clock);
+const bookings = new BookingService(repos, calendar, availability, clock, notifier);
 
 const billingProvider =
   cfg.BILLING === 'stripe'
@@ -78,9 +88,9 @@ const cleanup: AccountCleanup = {
     if (error) console.error('[account] Supabase Auth ユーザーの削除に失敗しました', error.message);
   },
 };
-const organizations = new OrganizationService(repos, billing, notifier, systemClock);
-const accounts = new AccountService(repos, bookings, billing, cleanup, systemClock, organizations);
-const reminders = new ReminderService(repos, notifier, systemClock, cfg.REMINDER_HOURS_BEFORE);
+const organizations = new OrganizationService(repos, billing, notifier, clock);
+const accounts = new AccountService(repos, bookings, billing, cleanup, clock, organizations);
+const reminders = new ReminderService(repos, notifier, clock, cfg.REMINDER_HOURS_BEFORE);
 
 if (cfg.REMINDER_INTERVAL_MINUTES > 0) {
   const run = () =>
@@ -104,7 +114,7 @@ const app = createApp({
   organizations,
   cronSecret: cfg.CRON_SECRET,
   fakeBilling: cfg.BILLING === 'fake',
-  clock: systemClock,
+  clock: clock,
   auth: cfg.AUTH_MODE === 'supabase' ? { mode: 'supabase', jwtSecret: cfg.SUPABASE_JWT_SECRET } : { mode: 'dev' },
   google,
   defaultTimezone: cfg.TIMEZONE,

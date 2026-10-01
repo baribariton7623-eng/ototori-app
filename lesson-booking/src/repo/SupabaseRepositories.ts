@@ -23,6 +23,17 @@ export function createSupabaseRepositories(url: string, serviceRoleKey: string):
 
 type Row = Record<string, unknown>;
 
+/**
+ * PostgREST は timestamptz を "2026-10-08T06:00:00+00:00" 形式で返すが、アプリは Date#toISOString() の
+ * "2026-10-08T06:00:00.000Z" 形式で文字列比較する箇所があるため、読み出し時にそろえる
+ */
+function iso(v: unknown): string {
+  return new Date(v as string).toISOString();
+}
+function isoOrNull(v: unknown): string | null {
+  return v === null || v === undefined ? null : iso(v);
+}
+
 function must<T>(res: { data: T | null; error: { message: string } | null }, label: string): T {
   if (res.error) throw new DomainError('validation', `${label}: ${res.error.message}`);
   if (res.data === null) throw new DomainError('not_found', `${label}が見つかりません`);
@@ -57,10 +68,11 @@ const hostFromRow = (r: Row): Host => ({
   lateChangeThresholdDays: (r.late_change_threshold_days as number | null) ?? 14,
   bookingHorizonDays: (r.booking_horizon_days as number | null) ?? 40,
   minLeadMinutes: r.min_lead_minutes as number,
-  createdAt: r.created_at as string,
+  createdAt: iso(r.created_at),
 });
 const hostToRow = (h: Partial<Host>): Row => strip({
-  email: h.email,
+  // メールは小文字で保存し、検索は完全一致(パターン一致の ilike は '_' がワイルドカードになり別人に一致しうる)
+  email: h.email?.toLowerCase(),
   display_name: h.displayName,
   slug: h.slug,
   bio: h.bio,
@@ -103,24 +115,24 @@ const studentFromRow = (r: Row): Student => ({
   id: r.id as string,
   email: r.email as string,
   name: r.name as string,
-  createdAt: r.created_at as string,
+  createdAt: iso(r.created_at),
 });
 
 const bookingFromRow = (r: Row): Booking => ({
   id: r.id as string,
   hostId: r.host_id as string,
   studentId: r.student_id as string,
-  startAt: r.start_at as string,
-  endAt: r.end_at as string,
+  startAt: iso(r.start_at),
+  endAt: iso(r.end_at),
   status: r.status as Booking['status'],
   calendarEventId: (r.calendar_event_id as string | null) ?? null,
   note: (r.note as string | null) ?? null,
   cancellationFeeStatus: r.cancellation_fee_status as Booking['cancellationFeeStatus'],
-  reminderSentAt: (r.reminder_sent_at as string | null) ?? null,
+  reminderSentAt: isoOrNull(r.reminder_sent_at),
   cancellationFeeAmount: (r.cancellation_fee_amount as number | null) ?? null,
   cancellationFeeMethod: (r.cancellation_fee_method as Booking['cancellationFeeMethod']) ?? null,
-  createdAt: r.created_at as string,
-  updatedAt: r.updated_at as string,
+  createdAt: iso(r.created_at),
+  updatedAt: iso(r.updated_at),
 });
 const bookingToRow = (b: Partial<Booking>): Row => strip({
   host_id: b.hostId,
@@ -146,12 +158,12 @@ const changeFromRow = (r: Row): ChangeRequest => ({
   option: r.option as ChangeRequest['option'],
   message: r.message as string,
   proposedStartAts: ((r.proposed_start_ats as string[] | null) ?? []).map((d) => new Date(d).toISOString()),
-  approvedStartAt: (r.approved_start_at as string | null) ?? null,
+  approvedStartAt: isoOrNull(r.approved_start_at),
   feeMethod: (r.fee_method as ChangeRequest['feeMethod']) ?? null,
   status: r.status as ChangeRequest['status'],
   decisionNote: (r.decision_note as string | null) ?? null,
-  createdAt: r.created_at as string,
-  decidedAt: (r.decided_at as string | null) ?? null,
+  createdAt: iso(r.created_at),
+  decidedAt: isoOrNull(r.decided_at),
 });
 const changeToRow = (c: Partial<ChangeRequest>): Row => strip({
   booking_id: c.bookingId,
@@ -177,7 +189,7 @@ const orgFromRow = (r: Row): Organization => ({
   subscriptionStatus: r.subscription_status as Organization['subscriptionStatus'],
   stripeCustomerId: (r.stripe_customer_id as string | null) ?? null,
   stripeSubscriptionId: (r.stripe_subscription_id as string | null) ?? null,
-  createdAt: r.created_at as string,
+  createdAt: iso(r.created_at),
 });
 const orgToRow = (o: Partial<Organization>): Row => strip({
   name: o.name,
@@ -195,8 +207,8 @@ const inviteFromRow = (r: Row): OrgInvitation => ({
   email: r.email as string,
   status: r.status as OrgInvitation['status'],
   invitedByHostId: r.invited_by_host_id as string,
-  createdAt: r.created_at as string,
-  respondedAt: (r.responded_at as string | null) ?? null,
+  createdAt: iso(r.created_at),
+  respondedAt: isoOrNull(r.responded_at),
 });
 
 function strip(row: Row): Row {
@@ -219,7 +231,7 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         return r ? hostFromRow(r) : null;
       },
       async findByEmail(email) {
-        const r = maybe(await sb.from('lb_hosts').select().ilike('email', email).maybeSingle<Row>(), '主催者');
+        const r = maybe(await sb.from('lb_hosts').select().eq('email', email.toLowerCase()).maybeSingle<Row>(), '主催者');
         return r ? hostFromRow(r) : null;
       },
       async findBySlug(slug) {
@@ -271,7 +283,7 @@ function buildRepositories(sb: SupabaseClient): Repositories {
     },
     students: {
       async findByEmail(email) {
-        const r = maybe(await sb.from('lb_students').select().ilike('email', email).maybeSingle<Row>(), '生徒');
+        const r = maybe(await sb.from('lb_students').select().eq('email', email.toLowerCase()).maybeSingle<Row>(), '生徒');
         return r ? studentFromRow(r) : null;
       },
       async findById(id) {
@@ -279,7 +291,7 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         return r ? studentFromRow(r) : null;
       },
       async create(input) {
-        return studentFromRow(must(await sb.from('lb_students').insert({ email: input.email, name: input.name }).select().single<Row>(), '生徒作成'));
+        return studentFromRow(must(await sb.from('lb_students').insert({ email: input.email.toLowerCase(), name: input.name }).select().single<Row>(), '生徒作成'));
       },
       async delete(id) {
         maybe(await sb.from('lb_students').delete().eq('id', id), '生徒削除');
@@ -429,7 +441,7 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       },
       async listPendingByEmail(email) {
         return must(
-          await sb.from('lb_org_invitations').select().ilike('email', email).eq('status', 'pending').order('created_at').returns<Row[]>(),
+          await sb.from('lb_org_invitations').select().eq('email', email.toLowerCase()).eq('status', 'pending').order('created_at').returns<Row[]>(),
           '招待一覧',
         ).map(inviteFromRow);
       },
