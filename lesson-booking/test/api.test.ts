@@ -1,57 +1,21 @@
-import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
-import { createApp } from '../src/http/app.js';
-import { BillingService } from '../src/services/BillingService.js';
-import { jst, setupWorld, type TestWorld } from './helpers.js';
+import { devUser, jst, setupWorld, startApi, type TestApi, type TestWorld } from './helpers.js';
+
+const TEACHER = devUser('teacher@example.com', '講師A');
+const STUDENT = devUser('student@example.com', '生徒B');
 
 let w: TestWorld;
-let server: Server;
+let api: TestApi;
 let base = '';
-
-const TEACHER = { 'x-dev-user-email': 'teacher@example.com', 'x-dev-user-name': encodeURIComponent('講師A') };
-const STUDENT = { 'x-dev-user-email': 'student@example.com', 'x-dev-user-name': encodeURIComponent('生徒B') };
-
-async function call(method: string, path: string, headers: Record<string, string>, body?: unknown) {
-  const res = await fetch(base + path, {
-    method,
-    headers: { 'content-type': 'application/json', ...headers },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const text = await res.text();
-  return { status: res.status, json: text ? JSON.parse(text) : null };
-}
+const call: TestApi['call'] = (...args) => api.call(...args);
 
 beforeAll(async () => {
   w = await setupWorld();
-  const app = createApp({
-    repos: w.repos,
-    calendar: w.calendar,
-    availability: w.availability,
-    bookings: w.bookings,
-    billing: new BillingService(w.repos, new FakeBillingProvider('http://localhost')),
-    accounts: w.accounts,
-    reminders: w.reminders,
-    fees: w.fees,
-    organizations: w.organizations,
-    cronSecret: 'cron-test-secret',
-    fakeBilling: true,
-    clock: w.clock,
-    auth: { mode: 'dev' },
-    defaultTimezone: 'Asia/Tokyo',
-    appBaseUrl: 'http://localhost',
-  });
-  await new Promise<void>((resolve) => {
-    server = app.listen(0, '127.0.0.1', () => resolve());
-  });
-  const addr = server.address();
-  if (!addr || typeof addr === 'string') throw new Error('no port');
-  base = `http://127.0.0.1:${addr.port}`;
+  api = await startApi(w);
+  base = api.base;
 });
 
-afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-});
+afterAll(() => api.close());
 
 describe('API 一連の流れ', () => {
   it('未ログインでは予約できない', async () => {

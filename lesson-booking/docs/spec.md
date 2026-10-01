@@ -57,6 +57,9 @@
 - 曜日判定・時刻は主催者のタイムゾーン(既定 `Asia/Tokyo`)で行い、API 上は UTC の ISO 8601 で返す。
 - レッスン長が枠に収まらない端は出さない(10:00–11:30 の枠、60 分レッスンなら 10:00 のみ)。
 - 連携カレンダーの busy は Google Calendar `freebusy.query` で複数カレンダーをまとめて取得する。
+- 同じ主催者の確定予約どうしは時間が重ならないことを DB でも保証する(`0011_booking_no_overlap.sql` の排他制約。同時に予約が来た場合も後着は `slot_unavailable`)。
+- 予約時のカレンダーへのイベント作成・振替時の更新は付加機能として扱い、失敗しても予約・振替は成立させる(ログに記録)。振替は DB を先に更新してからカレンダーを合わせる。
+- 振替で別の月へ動かす場合は、その月の予約数上限(フリープラン)も確認する(`plan_limit`)。
 
 ### 3.3 予約作成
 1. 受付ウィンドウ内か検証(外なら `outside_booking_window`)
@@ -84,6 +87,7 @@
 制約:
 - 1 予約につき `pending` の変更要求は 1 件まで(`change_request_pending`)。
 - 開始済み・終了済み・キャンセル済みの予約は変更できない(`invalid_state`)。
+- 対応方法「別日に振替を希望する」は `kind = reschedule` のときだけ選べる(キャンセル申請では `validation`)。
 - `kind = reschedule` の場合は `proposedStartAts` 必須。
   - 直前(承認制): 1〜3 件。重複不可、今の予約と同じ日時は不可、いずれも元の日から前後 N 日以内(講師の設定)・受付ウィンドウ内・申請時点で空いていること(埋まっていれば `slot_unavailable`、`details.rank` に何番目の希望か)。
   - 猶予あり(即時反映): 承認がないため 1 件のみ。
@@ -98,7 +102,7 @@
 | reject | 予約は `confirmed` のまま維持 | 同左 |
 
 - 判断メモ(`note`)を残せる。処理済み要求の再判断は不可。
-- 主催者の変更要求一覧(`GET /hosts/{hostId}/change-requests`)は、承認待ちの振替に `candidates`(希望順の各日時と、現在空いているか)を付けて返す。画面では埋まった候補を選べなくし、既定で空いている最上位の希望を選ぶ。
+- 主催者の変更要求一覧(`GET /hosts/{hostId}/change-requests`)は、承認待ちの振替に `candidates`(希望順の各日時と、現在空いているか)を付けて返す。画面では埋まった候補を選べなくし、既定で空いている最上位の希望を選ぶ。空き確認は全申請の候補をまとめてカレンダーへ 1 回だけ問い合わせる。
 
 ### 3.5.1 主催者による取り消し(休講)
 - 主催者は、生徒へのメッセージ(必須)を添えて今後の確定予約を取り消せる。キャンセルフィーは発生しない。
@@ -131,7 +135,7 @@
 ### 3.6.1 退会(アカウント削除)
 `DELETE /me`。確認文字列(主催者は URL 名、生徒はメールアドレス)を要求する。
 - 主催者: 今後の予約をすべて休講扱いで取り消して生徒に通知(承認待ち申請は却下扱い、カレンダー削除の失敗は無視)→ 有料契約を即時解約 → Google トークンを失効 → 主催者と関連データを削除。
-- 生徒: 今後の確定予約が残っていると拒否(`invalid_state`)。直前キャンセルの承認ルールを退会で回避させないため。
+- 生徒: 今後の確定予約、または未払いのキャンセルフィーが残っていると拒否(`invalid_state`)。直前キャンセルの承認ルールやフィーの支払いを退会で回避させないため。
 - 最後にログイン基盤(Supabase Auth)のユーザーを削除する。
 - Stripe の請求記録は法令上の保存のため Stripe 側に残る。
 
@@ -258,7 +262,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/me` | 自分の情報とロール |
 | DELETE | `/me` | 退会 `{confirm}`(主催者は URL 名、生徒はメールアドレス) |
 | POST | `/bookings` | 予約作成 `{hostId, startAt, note?}` → 201 |
-| GET | `/bookings` | 自分の予約一覧(`requiresApprovalToChange` 付き) |
+| GET | `/bookings?since=` | 自分の予約一覧(`requiresApprovalToChange`・変更要求履歴 `changeRequests` 付き)。過去分は既定で 90 日前まで(`since` で変更)、フィー未払いは期間に関係なく含む |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
 | POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAts?, feeMethod?}` → 200 `applied` / 202 `pending_approval`(旧形式の `proposedStartAt` 1 件も受け付ける) |
 | POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
@@ -276,7 +280,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | DELETE | `/hosts/{hostId}/calendars/{id}` | 連携解除 |
 | GET/POST | `/hosts/{hostId}/availability-windows` | 営業時間枠一覧/追加 `{weekday, startTime, endTime}` |
 | DELETE | `/hosts/{hostId}/availability-windows/{id}` | 削除 |
-| GET | `/hosts/{hostId}/bookings` | 全予約(生徒情報付き) |
+| GET | `/hosts/{hostId}/bookings?since=` | 予約一覧(生徒情報付き)。過去分は既定で 90 日前まで、フィー未払いは期間に関係なく含む |
+| GET | `/hosts/{hostId}/change-requests/count` | 承認待ちの件数 `{pending}`(タブのバッジ用。空き確認はしない) |
 | GET | `/hosts/{hostId}/change-requests?status=pending\|approved\|rejected\|all` | 変更要求一覧(予約・生徒・3 択ラベル付き) |
 | POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?, startAt?}`(振替の承認で希望日時から選んだ振替先) |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-paid` | キャンセルフィー入金確認 |
@@ -288,7 +293,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/hosts/{hostId}/google/connect` | Google 認可 URL を返す |
 | GET | `/hosts/{hostId}/google/status` | 連携済みか |
 | DELETE | `/hosts/{hostId}/google` | 連携解除 |
-| GET | `/google/callback?code&state` | Google からのリダイレクト先(state = hostId) |
+| GET | `/google/callback?code&state` | Google からのリダイレクト先(state は講師 ID に有効期限を付けて HMAC 署名したもの。`OAUTH_STATE_SECRET`) |
 
 ### エラー形式
 ```json

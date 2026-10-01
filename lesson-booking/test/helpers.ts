@@ -2,7 +2,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { inject } from 'vitest';
 import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
-import { createApp } from '../src/http/app.js';
+import { createApp, type AppDeps } from '../src/http/app.js';
 import { createSupabaseRepositories } from '../src/repo/SupabaseRepositories.js';
 import { FakeFeePaymentProvider } from '../src/billing/FakeFeePaymentProvider.js';
 import { FeeService } from '../src/services/FeeService.js';
@@ -144,13 +144,15 @@ export async function createRepositories(clock: Clock): Promise<Repositories> {
 }
 
 export interface TestApi {
+  /** http://127.0.0.1:<port> */
+  base: string;
   call(method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<{ status: number; json: any }>;
   close(): Promise<void>;
 }
 
-/** setupWorld の部品で HTTP サーバーを起動する(AUTH_MODE=dev、ヘッダでログイン) */
-export async function startApi(w: TestWorld): Promise<TestApi> {
-  const app = createApp({
+/** setupWorld の部品で組み立てた createApp の依存(AUTH_MODE=dev、課金は Fake) */
+export function appDeps(w: TestWorld): AppDeps {
+  return {
     repos: w.repos,
     calendar: w.calendar,
     availability: w.availability,
@@ -166,7 +168,12 @@ export async function startApi(w: TestWorld): Promise<TestApi> {
     auth: { mode: 'dev' },
     defaultTimezone: 'Asia/Tokyo',
     appBaseUrl: 'http://localhost',
-  });
+  };
+}
+
+/** setupWorld の部品で HTTP サーバーを起動する(ヘッダでログイン) */
+export async function startApi(w: TestWorld): Promise<TestApi> {
+  const app = createApp(appDeps(w));
   const server = await new Promise<Server>((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -174,12 +181,11 @@ export async function startApi(w: TestWorld): Promise<TestApi> {
   if (!addr || typeof addr === 'string') throw new Error('no port');
   const base = `http://127.0.0.1:${addr.port}`;
   return {
+    base,
     async call(method, path, headers, body) {
-      const res = await fetch(base + path, {
-        method,
-        headers: { 'content-type': 'application/json', ...headers },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      const init: RequestInit = { method, headers: { 'content-type': 'application/json', ...headers } };
+      if (body !== undefined) init.body = JSON.stringify(body);
+      const res = await fetch(base + path, init);
       const text = await res.text();
       return { status: res.status, json: text ? JSON.parse(text) : null };
     },

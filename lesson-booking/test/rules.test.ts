@@ -22,6 +22,9 @@ const booking: Booking = {
   calendarEventId: null,
   note: null,
   cancellationFeeStatus: 'none',
+  cancellationFeeAmount: null,
+  cancellationFeeMethod: null,
+  reminderSentAt: null,
   createdAt: NOW.toISOString(),
   updatedAt: NOW.toISOString(),
 };

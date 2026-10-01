@@ -2,7 +2,7 @@
  * 実 PostgreSQL + PostgREST でしか確かめられないこと(npm run test:db でのみ実行)
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { Host } from '../src/domain/types.js';
+import type { Host } from '../src/shared/types.js';
 import type { Repositories } from '../src/repo/Repository.js';
 import { FixedClock, createRepositories, jst } from '../test/helpers.js';
 

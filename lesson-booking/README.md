@@ -11,7 +11,7 @@
 
 ## 技術スタック
 
-Node.js 22 / TypeScript / Express 5 / zod / googleapis / Supabase (Postgres) / vitest
+Node.js 22 / TypeScript / Express 5 / zod / @googleapis/calendar / Supabase (Postgres) / vitest
 
 ## セットアップ(ローカル・DB も Google も不要)
 
@@ -82,7 +82,7 @@ CI(`.github/workflows/lesson-booking.yml`)は `lesson-booking/` に変更があ�
 - `npm run dev` — 開発サーバー(ファイル変更で再起動)
 - `npm run build` / `npm start` — ビルドして起動
 - `npm test` — vitest(業務ルール・空き枠・予約サービス・API)
-- `npm run typecheck` — 型チェック
+- `npm run typecheck` — 型チェック(本体・テスト・E2E)
 - (web/) `npm run dev` / `npm run build` / `npm run typecheck`
 
 ## 本番構成
@@ -163,20 +163,23 @@ Render を使う場合は `render.yaml`(ブループリント)を読み込むと
 ## ディレクトリ
 
 ```
-web/                  フロントエンド(React + Vite)。src/screens が画面、src/api がAPIクライアントと認証
+web/                  フロントエンド(React + Vite)。src/screens が画面(講師画面は screens/host/ にタブ・設定セクションごと)、
+                      src/api がAPIクライアントと認証。サーバーと共有する型・表示名は @shared(= ../src/shared)から読む
 src/
-  domain/        型・業務ルール(40日/14日/振替範囲)・空き枠計算・時刻ヘルパ(純関数)
+  shared/        画面と共有する型(types.ts)とルールの定数・表示名(policy.ts)。Node に依存しないこと
+  domain/        業務ルールの判定(予約受付期間/承認制/振替範囲)・プラン・空き枠計算・時刻ヘルパ(純関数)
   services/      AvailabilityService(空き枠) / BookingService(予約・変更要求・承認)
   calendar/      CalendarClient インターフェース / Google 実装 / Fake 実装
   billing/       BillingProvider インターフェース / Stripe 実装 / Fake 実装
   notify/        Notifier(業務イベント)/ EmailNotifier / メール文面 / 送信手段(Resend・コンソール・メモリ)
   repo/          Repository インターフェース / InMemory 実装 / Supabase 実装
-  http/          Express アプリ・認証ミドルウェア
+  http/          Express アプリ(app.ts)・認証ミドルウェア・共通部品(common.ts)
+    routes/      利用者ごとのエンドポイント(hosts / students / organizations / public / google)
   server.ts      エントリポイント(環境変数で実装を差し替え)
 supabase/migrations/  スキーマ SQL
 docs/spec.md          仕様書
-openapi.yaml          API 定義
-test/                 vitest
+openapi.yaml          API 定義(手書き。実装のルートとの過不足は test/openapi.test.ts が検出する)
+test/                 vitest(test-db/ は実 PostgreSQL + PostgREST、e2e/ は Playwright)
 ```
 
 ## 未実装・今後

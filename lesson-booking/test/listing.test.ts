@@ -45,10 +45,10 @@ describe('予約一覧の取得', () => {
     await w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'cancel', option: 'request_approval', message: '体調不良' });
 
     const r = await api.call('GET', '/bookings', STUDENT);
-    const byId = new Map(r.json.map((x: { id: string }) => [x.id, x]));
-    expect(byId.get(b.id).changeRequests).toHaveLength(1);
-    expect(byId.get(b.id).changeRequests[0]).toMatchObject({ kind: 'cancel', status: 'pending', message: '体調不良' });
-    expect(byId.get(other.id).changeRequests).toEqual([]);
+    const byId = new Map<string, { changeRequests: unknown[] }>(r.json.map((x: { id: string; changeRequests: unknown[] }) => [x.id, x]));
+    expect(byId.get(b.id)?.changeRequests).toHaveLength(1);
+    expect(byId.get(b.id)?.changeRequests[0]).toMatchObject({ kind: 'cancel', status: 'pending', message: '体調不良' });
+    expect(byId.get(other.id)?.changeRequests).toEqual([]);
   });
 
   it('承認待ちの件数はカレンダーに問い合わせずに返す', async () => {
