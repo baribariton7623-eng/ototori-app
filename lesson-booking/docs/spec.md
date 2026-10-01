@@ -186,7 +186,7 @@ Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイ�
 ```
 lb_hosts                    主催者(テナント)
   id, email(unique), display_name, slug(unique), bio, plan(free|pro),
-  reschedule_range_days(1〜30、既定 7), late_change_threshold_days(0〜90、既定 14), booking_horizon_days(1〜180、既定 40),
+  reschedule_range_days(1〜30、既定 7), late_change_threshold_days(0〜60、既定 14), booking_horizon_days(1〜60、既定 40),
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
   cancellation_fee_amount, fee_methods(text[]), bank_transfer_info, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at

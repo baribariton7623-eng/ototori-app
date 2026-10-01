@@ -142,8 +142,8 @@ paths:
                 lessonMinutes: { type: integer, default: 60 }
                 minLeadMinutes: { type: integer, default: 60 }
                 rescheduleRangeDays: { type: integer, minimum: 1, maximum: 30, default: 7 }
-                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 90, default: 14 }
-                bookingHorizonDays: { type: integer, minimum: 1, maximum: 180, default: 40 }
+                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 60, default: 14 }
+                bookingHorizonDays: { type: integer, minimum: 1, maximum: 60, default: 40 }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
         '409': { $ref: '#/components/responses/Error' }
@@ -167,8 +167,8 @@ paths:
                 lessonMinutes: { type: integer }
                 minLeadMinutes: { type: integer }
                 rescheduleRangeDays: { type: integer, minimum: 1, maximum: 30, description: 振替期間(元のレッスン日から前後の日数) }
-                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 90, description: 開始の何日前から承認制にするか }
-                bookingHorizonDays: { type: integer, minimum: 1, maximum: 180, description: 何日先まで予約を受け付けるか }
+                lateChangeThresholdDays: { type: integer, minimum: 0, maximum: 60, description: 開始の何日前から承認制にするか }
+                bookingHorizonDays: { type: integer, minimum: 1, maximum: 60, description: 何日先まで予約を受け付けるか }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Host' } } } }
 

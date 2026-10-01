@@ -5,7 +5,7 @@ import type { Booking, ChangeKind, FeeMethod, LateChangeOption } from './types.j
 /** 予約できるのは今から何日先までか(既定値。講師ごとに Host.bookingHorizonDays で変更できる) */
 export const BOOKING_HORIZON_DAYS = 40;
 export const MIN_BOOKING_HORIZON_DAYS = 1;
-export const MAX_BOOKING_HORIZON_DAYS = 180;
+export const MAX_BOOKING_HORIZON_DAYS = 60;
 
 /**
  * レッスン開始までこの日数未満のキャンセル・変更は主催者承認が必要(既定値。Host.lateChangeThresholdDays で変更できる)。
@@ -13,7 +13,7 @@ export const MAX_BOOKING_HORIZON_DAYS = 180;
  */
 export const LATE_CHANGE_THRESHOLD_DAYS = 14;
 export const MIN_LATE_CHANGE_THRESHOLD_DAYS = 0;
-export const MAX_LATE_CHANGE_THRESHOLD_DAYS = 90;
+export const MAX_LATE_CHANGE_THRESHOLD_DAYS = 60;
 
 /** 振替先の範囲(元のレッスン日から前後の日数)の既定値。講師ごとに変更できる(Host.rescheduleRangeDays) */
 export const DEFAULT_RESCHEDULE_RANGE_DAYS = 7;

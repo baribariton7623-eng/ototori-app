@@ -44,9 +44,9 @@ export interface Host {
   lessonMinutes: number;
   /** 直前の振替で選べる範囲。元のレッスン日から前後この日数以内(1〜30、既定 7) */
   rescheduleRangeDays: number;
-  /** レッスン開始の何日前から、キャンセル・変更を承認制にするか(0〜90、既定 14。0 なら承認制にしない) */
+  /** レッスン開始の何日前から、キャンセル・変更を承認制にするか(0〜60、既定 14。0 なら承認制にしない) */
   lateChangeThresholdDays: number;
-  /** 何日先まで予約を受け付けるか(1〜180、既定 40) */
+  /** 何日先まで予約を受け付けるか(1〜60、既定 40) */
   bookingHorizonDays: number;
   /** 予約可能な最短リード時間(分)。今から何分後以降の枠を出すか */
   minLeadMinutes: number;

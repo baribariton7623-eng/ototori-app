@@ -63,9 +63,9 @@ describe('講師ごとのルール: 予約を受け付ける期間', () => {
     ).rejects.toMatchObject({ code: 'outside_booking_window', details: { horizonDays: 10 } });
   });
 
-  it('90 日にすると、60 日後も予約できる', async () => {
-    await w.repos.hosts.update(w.host.id, { bookingHorizonDays: 90 });
-    const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: jst('2026-11-30T10:00:00') });
+  it('上限の 60 日にすると、55 日後も予約できる', async () => {
+    await w.repos.hosts.update(w.host.id, { bookingHorizonDays: 60 });
+    const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: jst('2026-11-25T10:00:00') });
     expect(b.status).toBe('confirmed');
   });
 });
