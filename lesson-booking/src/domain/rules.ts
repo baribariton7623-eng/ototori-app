@@ -153,6 +153,10 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
   if (input.option === 'pay_cancellation_fee' && input.kind !== 'cancel') {
     throw new DomainError('validation', 'キャンセルフィーの支払いは、キャンセルの申請でのみ選べます', { field: 'option' });
   }
+  if (input.option === 'reschedule_within_two_weeks' && input.kind !== 'reschedule') {
+    // 承認時は kind で処理を分けるため、キャンセルとして保存されると振替のつもりがキャンセルになる
+    throw new DomainError('validation', '別日への振替は、日時変更の申請でのみ選べます', { field: 'option' });
+  }
 
   const needsProposed = input.kind === 'reschedule' || input.option === 'reschedule_within_two_weeks';
   if (needsProposed) {

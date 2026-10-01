@@ -36,7 +36,7 @@ import {
   RESCHEDULE_RANGE_DAYS,
   isLateChange,
 } from '../domain/rules.js';
-import { isValidTimeString, timeStringToMinutes } from '../domain/time.js';
+import { isValidTimeString, isValidTimeZone, timeStringToMinutes } from '../domain/time.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
 import type { AccountService } from '../services/AccountService.js';
@@ -90,7 +90,7 @@ const createHostSchema = z.object({
   cancellationFeeAmount: z.number().int().min(MIN_FEE_JPY, `キャンセルフィーは${MIN_FEE_JPY}円以上にしてください`).max(1_000_000).nullable().optional(),
   feeMethods: z.array(z.enum(FEE_METHODS)).max(3).transform((a) => [...new Set(a)]).optional(),
   bankTransferInfo: z.string().trim().max(500).optional(),
-  timezone: z.string().trim().min(1).optional(),
+  timezone: z.string().trim().refine(isValidTimeZone, 'タイムゾーンは Asia/Tokyo のような IANA 名で指定してください').optional(),
   lessonMinutes: z.number().int().min(5).max(24 * 60).optional(),
   rescheduleRangeDays: z
     .number()
@@ -248,9 +248,11 @@ export function createApp(deps: AppDeps): express.Express {
     res.json(result);
   }));
 
+  // 公開ルートを先に登録する。後にすると /hosts/by-slug/<slug> が講師用の /hosts/:hostId/<sub> に
+  // 先に一致し、URL 名が billing などの講師の予約ページが開けなくなる
+  app.use(publicRoutes(deps));
   app.use(hostRoutes(deps));
   app.use(organizationRoutes(deps));
-  app.use(publicRoutes(deps));
   app.use(studentRoutes(deps));
   app.use(googleRoutes(deps));
 

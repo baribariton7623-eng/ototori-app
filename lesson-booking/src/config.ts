@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidTimeZone } from './domain/time.js';
 
 const schema = z.object({
   NODE_ENV: z.string().default('development'),
@@ -69,6 +70,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       if (!cfg[k]) missing.push(k);
     }
   }
+  if (!isValidTimeZone(cfg.TIMEZONE)) throw new Error(`TIMEZONE が不正です: ${cfg.TIMEZONE}`);
   if (cfg.FAKE_NOW && Number.isNaN(Date.parse(cfg.FAKE_NOW))) {
     throw new Error(`FAKE_NOW の日時が不正です: ${cfg.FAKE_NOW}`);
   }

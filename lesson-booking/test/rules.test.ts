@@ -88,7 +88,7 @@ describe('直前変更要求の入力検証', () => {
   });
   it('振替希望は振替先が必須で、元の日から前後7日以内', () => {
     expect(() =>
-      validateLateChangeRequest(booking, { kind: 'cancel', option: 'reschedule_within_two_weeks', message: 'x', proposedStartAts: [] }),
+      validateLateChangeRequest(booking, { kind: 'reschedule', option: 'reschedule_within_two_weeks', message: 'x', proposedStartAts: [] }),
     ).toThrowError(/希望日時を選んでください/);
     expect(() =>
       validateLateChangeRequest(booking, {
@@ -105,5 +105,16 @@ describe('直前変更要求の入力検証', () => {
       proposedStartAts: [jst('2026-10-17T10:00:00')],
     });
     expect(ok.proposedStartAts.map((d) => d.toISOString())).toEqual([jst('2026-10-17T10:00:00').toISOString()]);
+  });
+
+  it('キャンセル申請では振替オプションを選べない', () => {
+    expect(() =>
+      validateLateChangeRequest(booking, {
+        kind: 'cancel',
+        option: 'reschedule_within_two_weeks',
+        message: 'x',
+        proposedStartAts: [jst('2026-10-17T10:00:00')],
+      }),
+    ).toThrowError(/日時変更の申請でのみ/);
   });
 });

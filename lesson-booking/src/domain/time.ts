@@ -139,3 +139,14 @@ export function monthRange(date: Date, timeZone: string): { from: Date; to: Date
   const next = `${nextY}-${pad2(nextM)}-01`;
   return { from: zonedToUtc(first, '00:00', timeZone), to: zonedToUtc(next, '00:00', timeZone) };
 }
+
+/** IANA タイムゾーン名として使えるか(不正な値で Intl が RangeError を投げ、画面全体が 500 になるのを防ぐ) */
+export function isValidTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}

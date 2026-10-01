@@ -143,12 +143,33 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     },
   };
 
+  /** DB の排他制約(同じ講師の確定予約は時間帯が重ならない)と同じ判定 */
+  const assertNoOverlap = (b: Pick<Booking, 'hostId' | 'startAt' | 'endAt' | 'status'>, selfId?: string) => {
+    if (b.status !== 'confirmed') return;
+    const s0 = new Date(b.startAt).getTime();
+    const e0 = new Date(b.endAt).getTime();
+    const clash = bookings
+      .all()
+      .some(
+        (o) =>
+          o.id !== selfId &&
+          o.hostId === b.hostId &&
+          o.status === 'confirmed' &&
+          new Date(o.startAt).getTime() < e0 &&
+          new Date(o.endAt).getTime() > s0,
+      );
+    if (clash) throw new DomainError('slot_unavailable', 'この枠は直前に他の予約で埋まりました');
+  };
+
   const bookingRepo: BookingRepository = {
     async create(input) {
+      assertNoOverlap(input);
       const now = clock.now().toISOString();
       return bookings.insert({ ...input, createdAt: now, updatedAt: now });
     },
     async update(id, patch) {
+      const cur = bookings.rows.get(id);
+      if (cur) assertNoOverlap({ ...cur, ...patch }, id);
       return bookings.patch(id, { ...patch, updatedAt: clock.now().toISOString() }, '予約');
     },
     async findById(id) {

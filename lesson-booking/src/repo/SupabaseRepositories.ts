@@ -300,14 +300,16 @@ function buildRepositories(sb: SupabaseClient): Repositories {
     bookings: {
       async create(input) {
         const res = await sb.from('lb_bookings').insert(bookingToRow(input)).select().single<Row>();
-        if (res.error?.code === '23505') {
+        // 23505: 同じ開始時刻の一意制約 / 23P01: 時間帯が重なる予約の排他制約(0011)
+        if (res.error?.code === '23505' || res.error?.code === '23P01') {
           throw new DomainError('slot_unavailable', 'この枠は直前に他の予約で埋まりました');
         }
         return bookingFromRow(must(res, '予約作成'));
       },
       async update(id, patch) {
         const res = await sb.from('lb_bookings').update({ ...bookingToRow(patch), updated_at: new Date().toISOString() }).eq('id', id).select().single<Row>();
-        if (res.error?.code === '23505') {
+        // 23505: 同じ開始時刻の一意制約 / 23P01: 時間帯が重なる予約の排他制約(0011)
+        if (res.error?.code === '23505' || res.error?.code === '23P01') {
           throw new DomainError('slot_unavailable', 'この枠は直前に他の予約で埋まりました');
         }
         return bookingFromRow(must(res, '予約更新'));

@@ -82,8 +82,14 @@ export class BookingService {
       reminderSentAt: null,
     });
 
-    const eventId = await this.writeCalendarEvent(host, booking, input.student);
-    if (eventId) booking = await this.repos.bookings.update(booking.id, { calendarEventId: eventId });
+    // カレンダーへの書き込みは付加機能。失敗しても予約は成立させる(以前は予約が確定したまま
+    // 生徒にはエラーが返り、確認メールも届かず、同じ枠の取り直しもできなかった)
+    try {
+      const eventId = await this.writeCalendarEvent(host, booking, input.student);
+      if (eventId) booking = await this.repos.bookings.update(booking.id, { calendarEventId: eventId });
+    } catch (e) {
+      console.error('[booking] カレンダーへのイベント作成に失敗しました。予約は成立しています', booking.id, e);
+    }
 
     const created = booking;
     await safeNotify(() => this.notifier.bookingCreated({ host, student: input.student, booking: created }));
@@ -403,27 +409,40 @@ export class BookingService {
     });
   }
 
+  /**
+   * 予約の日時を変える。DB を正とし、先に DB を更新してからカレンダーを合わせる
+   * (逆順だと、DB の更新が同時予約などで失敗したときにカレンダーだけ動いてしまう)
+   */
   private async applyReschedule(host: Host, booking: Booking, newStart: Date): Promise<Booking> {
     const now = this.clock.now();
     assertWithinBookingWindow(newStart, now, host.minLeadMinutes, host.bookingHorizonDays);
     if (!(await this.availability.isSlotAvailable(host, newStart, booking.id))) {
       throw new DomainError('slot_unavailable', '振替先の枠は予約できません', { startAt: newStart.toISOString() });
     }
+    // 別の月へ動かす場合は、その月の予約数上限(フリープラン)も確認する
+    const fromMonth = monthRange(new Date(booking.startAt), host.timezone).from.getTime();
+    if (monthRange(newStart, host.timezone).from.getTime() !== fromMonth) await this.assertMonthlyQuota(host, newStart);
+
     const newEnd = new Date(newStart.getTime() + host.lessonMinutes * 60_000);
-    const target = await this.writeTargetCalendar(host.id);
-    if (booking.calendarEventId && target) {
-      await this.calendar.updateEvent(host.id, target, booking.calendarEventId, {
-        startAt: newStart.toISOString(),
-        endAt: newEnd.toISOString(),
-        timezone: host.timezone,
-      });
-    }
-    return this.repos.bookings.update(booking.id, {
+    const updated = await this.repos.bookings.update(booking.id, {
       startAt: newStart.toISOString(),
       endAt: newEnd.toISOString(),
       // 新しい日時について改めて前日リマインドを送る
       reminderSentAt: null,
     });
+    const target = await this.writeTargetCalendar(host.id);
+    if (booking.calendarEventId && target) {
+      try {
+        await this.calendar.updateEvent(host.id, target, booking.calendarEventId, {
+          startAt: newStart.toISOString(),
+          endAt: newEnd.toISOString(),
+          timezone: host.timezone,
+        });
+      } catch (e) {
+        console.error('[booking] カレンダーのイベント更新に失敗しました。予約の日時は変更済みです', booking.id, e);
+      }
+    }
+    return updated;
   }
 
   /** フリープランの月間予約上限(レッスン日の暦月で数える) */
