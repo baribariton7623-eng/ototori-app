@@ -91,7 +91,7 @@ describe('振替の第1〜第3希望', () => {
     const other = await w.repos.students.create({ email: 'o@example.com', name: 'O' });
     await w.bookings.createBooking({ hostId: w.host.id, student: other, startAt: C1 });
 
-    expect(await w.bookings.candidateAvailability(r.request)).toEqual([
+    expect((await w.bookings.candidateAvailability(w.host, [r.request])).get(r.request.id)).toEqual([
       { startAt: C1.toISOString(), available: false },
       { startAt: C2.toISOString(), available: true },
     ]);
@@ -99,6 +99,35 @@ describe('振替の第1〜第3希望', () => {
     // 失敗しても申請は承認待ちのまま。別の候補で承認できる
     const { booking } = await w.bookings.decideRequest(r.request.id, w.host.id, 'approve', undefined, C2);
     expect(booking.startAt).toBe(C2.toISOString());
+  });
+
+  it('承認待ちの空き確認は、複数の申請・候補でもカレンダーへの問い合わせ 1 回で済ませる', async () => {
+    const b1 = await lateBooking();
+    const other = await w.repos.students.create({ email: 'o@example.com', name: 'O' });
+    const b2 = await w.bookings.createBooking({ hostId: w.host.id, student: other, startAt: jst('2026-10-07T10:00:00') });
+    const r1 = await reschedule(b1.id, [C1, C2]);
+    const r2 = await w.bookings.requestChange({
+      bookingId: b2.id,
+      student: other,
+      kind: 'reschedule',
+      option: 'reschedule_within_two_weeks',
+      message: '振替希望',
+      proposedStartAts: [jst('2026-10-07T11:00:00'), C3],
+    });
+    if (r1.type !== 'pending_approval' || r2.type !== 'pending_approval') throw new Error('unexpected');
+    let calls = 0;
+    const original = w.calendar.freeBusy.bind(w.calendar);
+    w.calendar.freeBusy = async (...args) => {
+      calls++;
+      return original(...args);
+    };
+    const map = await w.bookings.candidateAvailability(w.host, await w.bookings.listPendingRequests(w.host.id));
+    expect(calls).toBe(1);
+    expect(map.get(r1.request.id)?.map((c) => c.available)).toEqual([true, true]);
+    expect(map.get(r2.request.id)).toEqual([
+      { startAt: jst('2026-10-07T11:00:00').toISOString(), available: true },
+      { startAt: C3.toISOString(), available: true },
+    ]);
   });
 
   it('開始 2 週間以上前の変更は即時反映なので、希望日時は 1 つだけ', async () => {

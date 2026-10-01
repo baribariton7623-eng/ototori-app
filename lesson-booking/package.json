@@ -19,9 +19,10 @@
     "test:e2e": "npm run build:all && playwright test"
   },
   "dependencies": {
+    "@googleapis/calendar": "^20.0.1",
     "@supabase/supabase-js": "^2.110.0",
     "express": "^5.1.0",
-    "googleapis": "^160.0.0",
+    "google-auth-library": "^11.1.0",
     "jose": "^6.1.0",
     "stripe": "^22.6.2",
     "zod": "^4.1.0"

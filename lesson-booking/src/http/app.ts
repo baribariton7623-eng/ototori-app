@@ -370,15 +370,15 @@ function hostRoutes(deps: AppDeps): Router {
 
   r.get('/hosts/:hostId/bookings', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
-    const list = await repos.bookings.listByHost(host.id);
-    const students = new Map<string, Awaited<ReturnType<typeof repos.students.findById>>>();
-    const out = [];
-    for (const b of list) {
-      if (!students.has(b.studentId)) students.set(b.studentId, await repos.students.findById(b.studentId));
-      const s = students.get(b.studentId) ?? null;
-      out.push({ ...b, student: s ? { id: s.id, email: s.email, name: s.name } : null });
-    }
-    res.json(out);
+    const list = await repos.bookings.listByHost(host.id, { since: listSince(req, deps.clock.now()) });
+    const students = await studentsById(repos, list.map((b) => b.studentId));
+    res.json(list.map((b) => ({ ...b, student: students.get(b.studentId) ?? null })));
+  }));
+
+  // タブのバッジ用。一覧と違い、空き確認(Google への問い合わせ)や予約・生徒の取得をしない
+  r.get('/hosts/:hostId/change-requests/count', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    res.json({ pending: (await repos.changeRequests.listByHost(host.id, 'pending')).length });
   }));
 
   r.get('/hosts/:hostId/change-requests', wrap(async (req, res) => {
@@ -386,19 +386,22 @@ function hostRoutes(deps: AppDeps): Router {
     const status = typeof req.query.status === 'string' ? req.query.status : 'pending';
     const parsed = z.enum(['pending', 'approved', 'rejected', 'all']).parse(status);
     const list = await repos.changeRequests.listByHost(host.id, parsed === 'all' ? undefined : parsed);
-    const out = [];
-    for (const c of list) {
-      const [booking, student] = await Promise.all([repos.bookings.findById(c.bookingId), repos.students.findById(c.studentId)]);
-      out.push({
+    const [bookings, students, candidates] = await Promise.all([
+      Promise.all([...new Set(list.map((c) => c.bookingId))].map((id) => repos.bookings.findById(id))),
+      studentsById(repos, list.map((c) => c.studentId)),
+      deps.bookings.candidateAvailability(host, list),
+    ]);
+    const bookingById = new Map(bookings.flatMap((b) => (b ? [[b.id, b] as const] : [])));
+    res.json(
+      list.map((c) => ({
         ...c,
         optionLabel: lateChangeOptionLabel(c.option, host.rescheduleRangeDays),
         feeMethodLabel: c.feeMethod ? FEE_METHOD_LABELS[c.feeMethod] : null,
-        candidates: await deps.bookings.candidateAvailability(c),
-        booking,
-        student: student ? { id: student.id, email: student.email, name: student.name } : null,
-      });
-    }
-    res.json(out);
+        candidates: candidates.get(c.id) ?? [],
+        booking: bookingById.get(c.bookingId) ?? null,
+        student: students.get(c.studentId) ?? null,
+      })),
+    );
   }));
 
   r.post('/hosts/:hostId/change-requests/:id/decision', wrap(async (req, res) => {
@@ -705,14 +708,18 @@ function studentRoutes(deps: AppDeps): Router {
 
   r.get('/bookings', wrap(async (req, res) => {
     const student = await requireStudent(req, repos);
-    const list = await repos.bookings.listByStudent(student.id);
     const now = deps.clock.now();
-    const hosts = new Map<string, Host | null>();
-    for (const b of list) if (!hosts.has(b.hostId)) hosts.set(b.hostId, await repos.hosts.findById(b.hostId));
+    const list = await repos.bookings.listByStudent(student.id, { since: listSince(req, now) });
+    // 一覧で変更要求も返す(以前は画面が予約ごとに GET /bookings/:id を呼んでいた)
+    const [hostList, requests] = await Promise.all([
+      Promise.all([...new Set(list.map((b) => b.hostId))].map((id) => repos.hosts.findById(id))),
+      repos.changeRequests.listByBookings(list.map((b) => b.id)),
+    ]);
+    const hosts = new Map(hostList.flatMap((h) => (h ? [[h.id, h] as const] : [])));
     res.json(
       list.map((b) => {
         const host = hosts.get(b.hostId) ?? null;
-        return { ...decorate(b, now, host), ...feeInfo(b, host) };
+        return { ...decorate(b, now, host), ...feeInfo(b, host), changeRequests: requests.filter((r) => r.bookingId === b.id) };
       }),
     );
   }));
@@ -720,8 +727,7 @@ function studentRoutes(deps: AppDeps): Router {
   r.get('/bookings/:id', wrap(async (req, res) => {
     const student = await requireStudent(req, repos);
     const booking = await deps.bookings.getBookingForStudent(param(req, 'id'), student);
-    const requests = await repos.changeRequests.listByBooking(booking.id);
-    const host = await repos.hosts.findById(booking.hostId);
+    const [requests, host] = await Promise.all([repos.changeRequests.listByBookings([booking.id]), repos.hosts.findById(booking.hostId)]);
     res.json({
       ...decorate(booking, deps.clock.now(), host),
       ...feeInfo(booking, host),
@@ -802,6 +808,22 @@ function googleRoutes(deps: AppDeps): Router {
 type FeeFields = { cancellationFeeStatus: string; cancellationFeeAmount: number | null; cancellationFeeMethod: string | null };
 
 /** この予約の未払いキャンセルフィーをオンラインで払えるか */
+/** 予約一覧に含める過去分の日数(既定)。キャンセルフィー未払いの予約は期間に関係なく返す */
+export const PAST_BOOKINGS_DAYS = 90;
+
+/** ?since=ISO日時 で過去分の起点を変えられる。既定は PAST_BOOKINGS_DAYS 日前 */
+function listSince(req: Request, now: Date): Date {
+  const q = req.query.since;
+  if (typeof q === 'string' && q) return isoDate.parse(q);
+  return new Date(now.getTime() - PAST_BOOKINGS_DAYS * 86_400_000);
+}
+
+/** 生徒をまとめて取得し、ID → 講師に見せる項目 */
+async function studentsById(repos: Repositories, ids: readonly string[]) {
+  const list = await repos.students.findByIds([...new Set(ids)]);
+  return new Map(list.map((s) => [s.id, { id: s.id, email: s.email, name: s.name }] as const));
+}
+
 function feePayable(b: FeeFields, host: Host | null): boolean {
   return (
     b.cancellationFeeStatus === 'pending' &&

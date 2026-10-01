@@ -38,6 +38,7 @@ export interface AvailabilityWindowRepository {
 export interface StudentRepository {
   findByEmail(email: string): Promise<Student | null>;
   findById(id: string): Promise<Student | null>;
+  findByIds(ids: readonly string[]): Promise<Student[]>;
   create(input: Omit<Student, 'id' | 'createdAt'>): Promise<Student>;
   /** 生徒と、その生徒の予約・変更要求を削除 */
   delete(id: string): Promise<void>;
@@ -51,10 +52,15 @@ export interface BookingRepository {
   listConfirmedByHost(hostId: string, from: Date, to: Date): Promise<Booking[]>;
   /** 指定期間に開始する主催者の確定予約数(プラン上限の判定用) */
   countConfirmedByHost(hostId: string, from: Date, to: Date): Promise<number>;
-  listByStudent(studentId: string): Promise<Booking[]>;
+  listByStudent(studentId: string, range?: BookingListRange): Promise<Booking[]>;
   /** 全主催者横断: [from, to) に開始する確定予約のうち、リマインド未送信のもの */
   listDueForReminder(from: Date, to: Date): Promise<Booking[]>;
-  listByHost(hostId: string): Promise<Booking[]>;
+  listByHost(hostId: string, range?: BookingListRange): Promise<Booking[]>;
+}
+
+/** 予約一覧の絞り込み。since 以降に開始する予約と、時期を問わずキャンセルフィー未払いの予約を返す */
+export interface BookingListRange {
+  since?: Date | undefined;
 }
 
 export interface ChangeRequestRepository {
@@ -63,7 +69,7 @@ export interface ChangeRequestRepository {
   findById(id: string): Promise<ChangeRequest | null>;
   findPendingByBooking(bookingId: string): Promise<ChangeRequest | null>;
   listByHost(hostId: string, status?: ChangeRequest['status']): Promise<ChangeRequest[]>;
-  listByBooking(bookingId: string): Promise<ChangeRequest[]>;
+  listByBookings(bookingIds: readonly string[]): Promise<ChangeRequest[]>;
 }
 
 export interface OrganizationRepository {

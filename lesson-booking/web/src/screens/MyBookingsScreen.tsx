@@ -6,7 +6,6 @@ import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
 import { daysLabel, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
 
-type Detail = StudentBooking & { changeRequests: ChangeRequest[] };
 
 const STATUS_JA: Record<ChangeRequest['status'], string> = { pending: '承認待ち', approved: '承認', rejected: '却下' };
 const KIND_JA: Record<ChangeRequest['kind'], string> = { cancel: 'キャンセル', reschedule: '日時変更' };
@@ -24,17 +23,13 @@ export function MyBookingsScreen({
   onDeleted: () => void;
 }) {
   const [list, setList] = useState<StudentBooking[] | null>(null);
-  const [details, setDetails] = useState<Record<string, Detail>>({});
   const [target, setTarget] = useState<StudentBooking | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const l = await api.myBookings();
-      setList(l);
-      const entries = await Promise.all(l.map(async (b) => [b.id, await api.booking(b.id)] as const));
-      setDetails(Object.fromEntries(entries));
+      setList(await api.myBookings());
     } catch (e) {
       setError(e);
     }
@@ -76,8 +71,7 @@ export function MyBookingsScreen({
         <h2 className="font-semibold">今後の予約</h2>
         {upcoming.length === 0 && <div className="text-sm text-stone-500">予約はありません。</div>}
         {upcoming.map((b) => {
-          const d = details[b.id];
-          const pending = d?.changeRequests.find((r) => r.status === 'pending');
+          const pending = b.changeRequests.find((r) => r.status === 'pending');
           return (
             <div key={b.id} className="card space-y-2">
               <div className="flex items-start justify-between gap-2">
@@ -112,7 +106,7 @@ export function MyBookingsScreen({
                   キャンセル・変更
                 </button>
               </div>
-              <History requests={d?.changeRequests.filter((r) => r.status !== 'pending') ?? []} rules={rules} rangeDays={b.rescheduleRangeDays} />
+              <History requests={b.changeRequests.filter((r) => r.status !== 'pending')} rules={rules} rangeDays={b.rescheduleRangeDays} />
             </div>
           );
         })}
@@ -167,7 +161,7 @@ export function MyBookingsScreen({
                   )}
                 </div>
               )}
-              <History requests={details[b.id]?.changeRequests ?? []} rules={rules} rangeDays={b.rescheduleRangeDays} />
+              <History requests={b.changeRequests} rules={rules} rangeDays={b.rescheduleRangeDays} />
             </div>
           ))}
         </section>

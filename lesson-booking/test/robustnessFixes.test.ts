@@ -1,11 +1,9 @@
-import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../src/http/app.js';
 import type { Booking } from '../src/domain/types.js';
-import { jst, setupWorld, type TestWorld } from './helpers.js';
+import { devUser, insertBooking as insertBookingFor, jst, setupWorld, startApi, type TestApi, type TestWorld } from './helpers.js';
 
-const TEACHER = { 'x-dev-user-email': 'teacher@example.com', 'x-dev-user-name': encodeURIComponent('講師A') };
-const NEWCOMER = { 'x-dev-user-email': 'newcomer@example.com', 'x-dev-user-name': encodeURIComponent('新講師') };
+const TEACHER = devUser('teacher@example.com', '講師A');
+const NEWCOMER = devUser('newcomer@example.com', '新講師');
 
 let w: TestWorld;
 
@@ -13,66 +11,17 @@ beforeEach(async () => {
   w = await setupWorld();
 });
 
-/** 予約を直接 DB に入れる(サービスの検証を通さずに状態を作るため) */
-function insertBooking(startAt: Date, studentId = w.student.id): Promise<Booking> {
-  return w.repos.bookings.create({
-    hostId: w.host.id,
-    studentId,
-    startAt: startAt.toISOString(),
-    endAt: new Date(startAt.getTime() + 60 * 60_000).toISOString(),
-    status: 'confirmed',
-    calendarEventId: null,
-    note: null,
-    cancellationFeeStatus: 'none',
-    cancellationFeeAmount: null,
-    cancellationFeeMethod: null,
-    reminderSentAt: null,
-  });
+function insertBooking(startAt: Date): Promise<Booking> {
+  return insertBookingFor(w, startAt);
 }
 
 describe('HTTP: ルートの衝突と入力検証', () => {
-  let server: Server;
-  let base = '';
-
+  let api: TestApi;
   beforeEach(async () => {
-    const app = createApp({
-      repos: w.repos,
-      calendar: w.calendar,
-      availability: w.availability,
-      bookings: w.bookings,
-      billing: w.billing,
-      accounts: w.accounts,
-      reminders: w.reminders,
-      fees: w.fees,
-      organizations: w.organizations,
-      cronSecret: 'cron-test-secret',
-      fakeBilling: true,
-      clock: w.clock,
-      auth: { mode: 'dev' },
-      defaultTimezone: 'Asia/Tokyo',
-      appBaseUrl: 'http://localhost',
-    });
-    await new Promise<void>((resolve) => {
-      server = app.listen(0, '127.0.0.1', () => resolve());
-    });
-    const addr = server.address();
-    if (!addr || typeof addr === 'string') throw new Error('no port');
-    base = `http://127.0.0.1:${addr.port}`;
+    api = await startApi(w);
   });
-
-  afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
-
-  async function call(method: string, path: string, headers: Record<string, string>, body?: unknown) {
-    const res = await fetch(base + path, {
-      method,
-      headers: { 'content-type': 'application/json', ...headers },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const text = await res.text();
-    return { status: res.status, json: text ? JSON.parse(text) : null };
-  }
+  afterEach(() => api.close());
+  const call: TestApi['call'] = (...args) => api.call(...args);
 
   it('講師用ルートと同じ名前の URL 名(billing など)でも公開ページを未ログインで開ける', async () => {
     for (const slug of ['billing', 'connect', 'bookings', 'calendars']) {

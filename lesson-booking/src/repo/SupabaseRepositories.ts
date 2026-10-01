@@ -10,7 +10,7 @@ import type {
   OrgInvitation,
   Student,
 } from '../domain/types.js';
-import type { Repositories } from './Repository.js';
+import type { BookingListRange, Repositories } from './Repository.js';
 
 /**
  * Supabase(Postgres) 実装。service role key で接続し、認可はアプリ層で行う。
@@ -211,6 +211,12 @@ const inviteFromRow = (r: Row): OrgInvitation => ({
   respondedAt: isoOrNull(r.responded_at),
 });
 
+/** BookingListRange を PostgREST の条件に(since 以降の予約と、キャンセルフィー未払いの予約) */
+function withRange<Q extends { or(filters: string): Q }>(q: Q, range: BookingListRange | undefined): Q {
+  if (!range?.since) return q;
+  return q.or(`start_at.gte.${range.since.toISOString()},cancellation_fee_status.eq.pending`);
+}
+
 function strip(row: Row): Row {
   const out: Row = {};
   for (const [k, v] of Object.entries(row)) if (v !== undefined) out[k] = v;
@@ -290,6 +296,10 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         const r = maybe(await sb.from('lb_students').select().eq('id', id).maybeSingle<Row>(), '生徒');
         return r ? studentFromRow(r) : null;
       },
+      async findByIds(ids) {
+        if (ids.length === 0) return [];
+        return must(await sb.from('lb_students').select().in('id', [...new Set(ids)]).returns<Row[]>(), '生徒').map(studentFromRow);
+      },
       async create(input) {
         return studentFromRow(must(await sb.from('lb_students').insert({ email: input.email.toLowerCase(), name: input.name }).select().single<Row>(), '生徒作成'));
       },
@@ -359,11 +369,13 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         if (res.error) throw new DomainError('validation', `予約数取得: ${res.error.message}`);
         return res.count ?? 0;
       },
-      async listByStudent(studentId) {
-        return must(await sb.from('lb_bookings').select().eq('student_id', studentId).order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);
+      async listByStudent(studentId, range) {
+        const q = withRange(sb.from('lb_bookings').select().eq('student_id', studentId), range);
+        return must(await q.order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);
       },
-      async listByHost(hostId) {
-        return must(await sb.from('lb_bookings').select().eq('host_id', hostId).order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);
+      async listByHost(hostId, range) {
+        const q = withRange(sb.from('lb_bookings').select().eq('host_id', hostId), range);
+        return must(await q.order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);
       },
     },
     changeRequests: {
@@ -390,8 +402,10 @@ function buildRepositories(sb: SupabaseClient): Repositories {
         if (status) q = q.eq('status', status);
         return must(await q.order('created_at').returns<Row[]>(), '変更要求一覧').map(changeFromRow);
       },
-      async listByBooking(bookingId) {
-        return must(await sb.from('lb_change_requests').select().eq('booking_id', bookingId).order('created_at').returns<Row[]>(), '変更要求一覧').map(changeFromRow);
+      async listByBookings(bookingIds) {
+        if (bookingIds.length === 0) return [];
+        const q = sb.from('lb_change_requests').select().in('booking_id', [...new Set(bookingIds)]);
+        return must(await q.order('created_at').returns<Row[]>(), '変更要求一覧').map(changeFromRow);
       },
     },
     organizations: {

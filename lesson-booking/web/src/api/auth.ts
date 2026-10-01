@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * 認証の抽象。
@@ -11,13 +11,14 @@ export const AUTH_MODE: AuthMode = import.meta.env.VITE_AUTH_MODE === 'supabase'
 
 const DEV_KEY = 'lesson-booking.dev-user';
 
-let supabase: SupabaseClient | null = null;
-function sb(): SupabaseClient {
+// supabase-js は大きいので、supabase モードで初めて使うときに読み込む(dev モードでは読み込まない)
+let supabase: Promise<SupabaseClient> | null = null;
+function sb(): Promise<SupabaseClient> {
   if (!supabase) {
     const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
     const key = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-    if (!url || !key) throw new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY が未設定です');
-    supabase = createClient(url, key);
+    if (!url || !key) return Promise.reject(new Error('VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY が未設定です'));
+    supabase = import('@supabase/supabase-js').then(({ createClient }) => createClient(url, key));
   }
   return supabase;
 }
@@ -52,19 +53,19 @@ export async function authHeaders(): Promise<Record<string, string>> {
     if (!u) return {};
     return { 'x-dev-user-email': u.email, 'x-dev-user-name': encodeURIComponent(u.name) };
   }
-  const { data } = await sb().auth.getSession();
+  const { data } = await (await sb()).auth.getSession();
   const token = data.session?.access_token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function isSignedIn(): Promise<boolean> {
   if (AUTH_MODE === 'dev') return getDevUser() !== null;
-  const { data } = await sb().auth.getSession();
+  const { data } = await (await sb()).auth.getSession();
   return data.session !== null;
 }
 
 export async function signInWithGoogle(): Promise<void> {
-  await sb().auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+  await (await sb()).auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
 }
 
 export async function signOut(): Promise<void> {
@@ -72,12 +73,21 @@ export async function signOut(): Promise<void> {
     setDevUser(null);
     return;
   }
-  await sb().auth.signOut();
+  await (await sb()).auth.signOut();
 }
 
 /** セッション変化の購読(supabase モードのみ意味を持つ) */
 export function onAuthChange(cb: () => void): () => void {
   if (AUTH_MODE === 'dev') return () => {};
-  const { data } = sb().auth.onAuthStateChange(() => cb());
-  return () => data.subscription.unsubscribe();
+  let unsubscribe: (() => void) | null = null;
+  let cancelled = false;
+  void sb().then((client) => {
+    if (cancelled) return;
+    const { data } = client.auth.onAuthStateChange(() => cb());
+    unsubscribe = () => data.subscription.unsubscribe();
+  });
+  return () => {
+    cancelled = true;
+    unsubscribe?.();
+  };
 }

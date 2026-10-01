@@ -73,7 +73,6 @@ export const api = {
   createBooking: (hostId: string, startAt: string, note?: string) =>
     request<StudentBooking>('POST', '/bookings', { hostId, startAt, note: note || undefined }),
   myBookings: () => request<StudentBooking[]>('GET', '/bookings'),
-  booking: (id: string) => request<StudentBooking & { changeRequests: ChangeRequest[] }>('GET', `/bookings/${id}`),
   change: (
     id: string,
     input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAts?: string[]; feeMethod?: FeeMethod },
@@ -139,6 +138,7 @@ export const api = {
     request<AvailabilityWindow>('POST', `/hosts/${hostId}/availability-windows`, input),
   removeWindow: (hostId: string, id: string) => request<void>('DELETE', `/hosts/${hostId}/availability-windows/${id}`),
   hostBookings: (hostId: string) => request<HostBooking[]>('GET', `/hosts/${hostId}/bookings`),
+  pendingRequestCount: (hostId: string) => request<{ pending: number }>('GET', `/hosts/${hostId}/change-requests/count`),
   changeRequests: (hostId: string, status: 'pending' | 'approved' | 'rejected' | 'all' = 'pending') =>
     request<HostChangeRequest[]>('GET', `/hosts/${hostId}/change-requests?status=${status}`),
   decide: (hostId: string, id: string, decision: 'approve' | 'reject', note?: string, startAt?: string) =>

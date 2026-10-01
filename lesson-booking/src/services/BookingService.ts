@@ -13,7 +13,7 @@ import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOpt
 import { noopNotifier, safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
-import type { AvailabilityService } from './AvailabilityService.js';
+import type { AvailabilityService, SlotCheck } from './AvailabilityService.js';
 
 export type { Notifier } from '../notify/Notifier.js';
 
@@ -269,15 +269,32 @@ export class BookingService {
   }
 
   /** 振替の候補ごとに、今も空いているか(講師の承認画面用) */
-  async candidateAvailability(request: ChangeRequest): Promise<{ startAt: string; available: boolean }[]> {
-    if (request.kind !== 'reschedule' || request.status !== 'pending') return [];
-    const host = await this.availability.getHost(request.hostId);
+  /**
+   * 承認待ちの振替申請それぞれについて、希望日時が今も空いているか。講師の申請をまとめて 1 回で調べる。
+   * 戻り値は申請 ID → 候補ごとの空き状況(振替以外・処理済みの申請は空配列)
+   */
+  async candidateAvailability(
+    host: Host,
+    requests: readonly ChangeRequest[],
+  ): Promise<Map<string, { startAt: string; available: boolean }[]>> {
     const now = this.clock.now();
-    const out = [];
-    for (const iso of request.proposedStartAts) {
-      const d = new Date(iso);
-      const available = d.getTime() > now.getTime() && (await this.availability.isSlotAvailable(host, d, request.bookingId));
-      out.push({ startAt: iso, available });
+    const out = new Map<string, { startAt: string; available: boolean }[]>();
+    const checks: { requestId: string; startAt: string; check: SlotCheck }[] = [];
+    for (const r of requests) {
+      out.set(r.id, []);
+      if (r.kind !== 'reschedule' || r.status !== 'pending' || r.hostId !== host.id) continue;
+      for (const iso of r.proposedStartAts) {
+        const d = new Date(iso);
+        if (d.getTime() > now.getTime()) checks.push({ requestId: r.id, startAt: iso, check: { startAt: d, excludeBookingId: r.bookingId } });
+        else out.get(r.id)?.push({ startAt: iso, available: false });
+      }
+    }
+    const results = await this.availability.checkSlots(host, checks.map((c) => c.check));
+    checks.forEach((c, i) => out.get(c.requestId)?.push({ startAt: c.startAt, available: results[i] ?? false }));
+    // 希望順(proposedStartAts の順)に並べ直す
+    for (const r of requests) {
+      const list = out.get(r.id) ?? [];
+      list.sort((a, b) => r.proposedStartAts.indexOf(a.startAt) - r.proposedStartAts.indexOf(b.startAt));
     }
     return out;
   }

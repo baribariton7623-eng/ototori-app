@@ -137,6 +137,8 @@ export interface StudentBooking extends Booking {
   rescheduleRangeDays: number;
   /** この予約の講師が、開始の何日前から承認制にしているか */
   lateChangeThresholdDays: number;
+  /** この予約への変更要求(古い順) */
+  changeRequests: ChangeRequest[];
 }
 
 export interface ConnectStatus {

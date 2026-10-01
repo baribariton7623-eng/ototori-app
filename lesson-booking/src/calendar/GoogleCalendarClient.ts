@@ -1,4 +1,5 @@
-import { google, type calendar_v3 } from 'googleapis';
+import { calendar, type calendar_v3 } from '@googleapis/calendar';
+import { OAuth2Client } from 'google-auth-library';
 import { DomainError } from '../domain/errors.js';
 import type { BusyInterval } from '../domain/types.js';
 import type { GoogleCredentialStore } from '../repo/Repository.js';
@@ -162,7 +163,7 @@ export class GoogleCalendarClient implements CalendarClient {
   }
 
   private newOAuthClient() {
-    return new google.auth.OAuth2(this.oauth.clientId, this.oauth.clientSecret, this.oauth.redirectUri);
+    return new OAuth2Client(this.oauth.clientId, this.oauth.clientSecret, this.oauth.redirectUri);
   }
 
   private async api(hostId: string): Promise<calendar_v3.Calendar> {
@@ -174,7 +175,7 @@ export class GoogleCalendarClient implements CalendarClient {
     }
     const client = this.newOAuthClient();
     client.setCredentials({ refresh_token: refreshToken });
-    return google.calendar({ version: 'v3', auth: client });
+    return calendar({ version: 'v3', auth: client });
   }
 }
 

@@ -43,7 +43,7 @@ export function HostScreen({
   const [pendingCount, setPendingCount] = useState<number | null>(null);
 
   useEffect(() => {
-    api.changeRequests(host.id, 'pending').then((l) => setPendingCount(l.length)).catch(() => setPendingCount(null));
+    api.pendingRequestCount(host.id).then((c) => setPendingCount(c.pending)).catch(() => setPendingCount(null));
   }, [host.id, tab]);
 
   const tabs: { key: Tab; label: string }[] = [

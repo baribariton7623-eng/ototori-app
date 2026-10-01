@@ -1,6 +1,8 @@
+import type { Server } from 'node:http';
 import pg from 'pg';
 import { inject } from 'vitest';
 import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
+import { createApp } from '../src/http/app.js';
 import { createSupabaseRepositories } from '../src/repo/SupabaseRepositories.js';
 import { FakeFeePaymentProvider } from '../src/billing/FakeFeePaymentProvider.js';
 import { FeeService } from '../src/services/FeeService.js';
@@ -11,7 +13,7 @@ import { EmailNotifier } from '../src/notify/EmailNotifier.js';
 import { AccountService, type AccountCleanup } from '../src/services/AccountService.js';
 import { BillingService } from '../src/services/BillingService.js';
 import { ReminderService } from '../src/services/ReminderService.js';
-import type { Host, Student, Weekday } from '../src/domain/types.js';
+import type { Booking, Host, Student, Weekday } from '../src/domain/types.js';
 import { createInMemoryRepositories, type Clock } from '../src/repo/InMemoryRepositories.js';
 import type { Repositories } from '../src/repo/Repository.js';
 import { AvailabilityService } from '../src/services/AvailabilityService.js';
@@ -139,4 +141,71 @@ export async function createRepositories(clock: Clock): Promise<Repositories> {
   await db.query(`truncate ${TABLES.join(', ')} cascade`);
   await db.end();
   return createSupabaseRepositories(inject('supabaseUrl'), inject('supabaseServiceKey'));
+}
+
+export interface TestApi {
+  call(method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<{ status: number; json: any }>;
+  close(): Promise<void>;
+}
+
+/** setupWorld の部品で HTTP サーバーを起動する(AUTH_MODE=dev、ヘッダでログイン) */
+export async function startApi(w: TestWorld): Promise<TestApi> {
+  const app = createApp({
+    repos: w.repos,
+    calendar: w.calendar,
+    availability: w.availability,
+    bookings: w.bookings,
+    billing: w.billing,
+    accounts: w.accounts,
+    reminders: w.reminders,
+    fees: w.fees,
+    organizations: w.organizations,
+    cronSecret: 'cron-test-secret',
+    fakeBilling: true,
+    clock: w.clock,
+    auth: { mode: 'dev' },
+    defaultTimezone: 'Asia/Tokyo',
+    appBaseUrl: 'http://localhost',
+  });
+  const server = await new Promise<Server>((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') throw new Error('no port');
+  const base = `http://127.0.0.1:${addr.port}`;
+  return {
+    async call(method, path, headers, body) {
+      const res = await fetch(base + path, {
+        method,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await res.text();
+      return { status: res.status, json: text ? JSON.parse(text) : null };
+    },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+/** dev 認証のログインヘッダ */
+export function devUser(email: string, name: string): Record<string, string> {
+  return { 'x-dev-user-email': email, 'x-dev-user-name': encodeURIComponent(name) };
+}
+
+/** 予約を直接 DB に入れる(サービスの検証を通さずに状態を作るため)。既定は w.host・w.student の 60 分の確定予約 */
+export function insertBooking(w: TestWorld, startAt: Date, overrides: Partial<Omit<Booking, 'id' | 'createdAt' | 'updatedAt'>> = {}): Promise<Booking> {
+  return w.repos.bookings.create({
+    hostId: w.host.id,
+    studentId: w.student.id,
+    startAt: startAt.toISOString(),
+    endAt: new Date(startAt.getTime() + 60 * 60_000).toISOString(),
+    status: 'confirmed',
+    calendarEventId: null,
+    note: null,
+    cancellationFeeStatus: 'none',
+    cancellationFeeAmount: null,
+    cancellationFeeMethod: null,
+    reminderSentAt: null,
+    ...overrides,
+  });
 }

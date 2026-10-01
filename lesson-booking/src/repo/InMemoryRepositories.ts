@@ -12,6 +12,7 @@ import type {
 } from '../domain/types.js';
 import type {
   AvailabilityWindowRepository,
+  BookingListRange,
   BookingRepository,
   ChangeRequestRepository,
   GoogleCredentialStore,
@@ -28,6 +29,11 @@ export interface Clock {
 }
 
 export const systemClock: Clock = { now: () => new Date() };
+
+function inRange(b: Booking, range: BookingListRange | undefined): boolean {
+  if (!range?.since) return true;
+  return b.startAt >= range.since.toISOString() || b.cancellationFeeStatus === 'pending';
+}
 
 class Table<T extends { id: string }> {
   readonly rows = new Map<string, T>();
@@ -133,6 +139,9 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     async findById(id) {
       return students.rows.get(id) ?? null;
     },
+    async findByIds(ids) {
+      return ids.flatMap((id) => students.rows.get(id) ?? []);
+    },
     async create(input) {
       return students.insert({ ...input, createdAt: clock.now().toISOString() });
     },
@@ -203,16 +212,16 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
     async countConfirmedByHost(hostId, from, to) {
       return (await this.listConfirmedByHost(hostId, from, to)).length;
     },
-    async listByStudent(studentId) {
+    async listByStudent(studentId, range) {
       return bookings
         .all()
-        .filter((b) => b.studentId === studentId)
+        .filter((b) => b.studentId === studentId && inRange(b, range))
         .sort((a, b) => a.startAt.localeCompare(b.startAt));
     },
-    async listByHost(hostId) {
+    async listByHost(hostId, range) {
       return bookings
         .all()
-        .filter((b) => b.hostId === hostId)
+        .filter((b) => b.hostId === hostId && inRange(b, range))
         .sort((a, b) => a.startAt.localeCompare(b.startAt));
     },
   };
@@ -236,10 +245,11 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
         .filter((c) => c.hostId === hostId && (status ? c.status === status : true))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
-    async listByBooking(bookingId) {
+    async listByBookings(bookingIds) {
+      const ids = new Set(bookingIds);
       return changes
         .all()
-        .filter((c) => c.bookingId === bookingId)
+        .filter((c) => ids.has(c.bookingId))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     },
   };

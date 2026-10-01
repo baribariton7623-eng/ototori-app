@@ -1,18 +1,22 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { isSignedIn, onAuthChange, signOut } from './api/auth';
 import { ApiError, api } from './api/client';
 import type { Host, Me, Rules } from './api/types';
 import { Footer } from './components/Footer';
 import { ErrorBanner, Modal, Notice, Spinner } from './components/ui';
-import { PrivacyPage, TermsPage, TokushohoPage } from './legal/LegalPages';
-import { BecomeHostScreen } from './screens/BecomeHostScreen';
 import { BookScreen } from './screens/BookScreen';
-import { HostScreen } from './screens/HostScreen';
 import { LandingScreen } from './screens/LandingScreen';
-import { LoginScreen } from './screens/LoginScreen';
-import { MyBookingsScreen } from './screens/MyBookingsScreen';
-import { OrgPageScreen } from './screens/OrgPageScreen';
 import { StudentHomeScreen } from './screens/StudentHomeScreen';
+
+// 最初の表示(予約ページ・LP)に要らない画面は、開いたときに読み込む
+const HostScreen = lazy(() => import('./screens/HostScreen').then((m) => ({ default: m.HostScreen })));
+const MyBookingsScreen = lazy(() => import('./screens/MyBookingsScreen').then((m) => ({ default: m.MyBookingsScreen })));
+const BecomeHostScreen = lazy(() => import('./screens/BecomeHostScreen').then((m) => ({ default: m.BecomeHostScreen })));
+const OrgPageScreen = lazy(() => import('./screens/OrgPageScreen').then((m) => ({ default: m.OrgPageScreen })));
+const LoginScreen = lazy(() => import('./screens/LoginScreen').then((m) => ({ default: m.LoginScreen })));
+const TermsPage = lazy(() => import('./legal/LegalPages').then((m) => ({ default: m.TermsPage })));
+const PrivacyPage = lazy(() => import('./legal/LegalPages').then((m) => ({ default: m.PrivacyPage })));
+const TokushohoPage = lazy(() => import('./legal/LegalPages').then((m) => ({ default: m.TokushohoPage })));
 
 type Route =
   | { name: 'legal'; page: 'terms' | 'privacy' | 'tokushoho' }
@@ -175,13 +179,15 @@ export function App() {
             <button type="button" className="ml-2 underline text-xs" onClick={() => setFlash(null)}>閉じる</button>
           </Notice>
         )}
-        {content}
+        <Suspense fallback={<Spinner />}>{content}</Suspense>
       </main>
       <Footer />
 
       {showLogin && (
         <Modal title="ログイン" onClose={() => setShowLogin(false)}>
-          <LoginScreen onLogin={onLoggedIn} embedded />
+          <Suspense fallback={<Spinner />}>
+            <LoginScreen onLogin={onLoggedIn} embedded />
+          </Suspense>
         </Modal>
       )}
     </div>
