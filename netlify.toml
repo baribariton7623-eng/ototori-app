@@ -5,6 +5,18 @@
 [build.environment]
   NODE_VERSION = "24"
 
+# レパートリー管理アプリ(/repertoire/ でアクセスできるようにする)。
+# 汎用の SPA フォールバックより前に置く必要がある。
+[[redirects]]
+  from = "/repertoire"
+  to = "/repertoire.html"
+  status = 200
+
+[[redirects]]
+  from = "/repertoire/*"
+  to = "/repertoire.html"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

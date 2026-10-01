@@ -15,6 +15,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(rootDir, 'index.html'),
+        // 生徒・講師向けのレパートリー管理アプリ(本番にも含める)。
+        repertoire: resolve(rootDir, 'repertoire.html'),
       },
     },
   },
