@@ -1,4 +1,4 @@
-import type { Host, Organization } from '../domain/types.js';
+import type { Host, Organization } from '../shared/types.js';
 
 /** 課金プロバイダから届いた出来事を、プロバイダ非依存の形に正規化したもの */
 export type BillingEvent =

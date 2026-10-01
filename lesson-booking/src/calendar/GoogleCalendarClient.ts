@@ -1,7 +1,7 @@
 import { calendar, type calendar_v3 } from '@googleapis/calendar';
 import { OAuth2Client } from 'google-auth-library';
 import { DomainError } from '../domain/errors.js';
-import type { BusyInterval } from '../domain/types.js';
+import type { BusyInterval } from '../shared/types.js';
 import type { GoogleCredentialStore } from '../repo/Repository.js';
 import { signState, verifyState } from '../security/signedState.js';
 import type { CalendarClient, CalendarEventInput } from './CalendarClient.js';

@@ -1,6 +1,6 @@
 import { canCollectFeeOnline } from '../domain/plans.js';
-import { FEE_METHOD_LABELS, daysLabel, lateChangeOptionLabel } from '../domain/rules.js';
-import type { Booking, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
+import { FEE_METHOD_LABELS, daysLabel, lateChangeOptionLabel, yen } from '../domain/rules.js';
+import type { Booking, ChangeRequest, Host, Organization, Student } from '../shared/types.js';
 import type { EmailMessage } from './EmailSender.js';
 
 /**
@@ -202,10 +202,6 @@ export function lessonReminderMails(ctx: TemplateContext, host: Host, student: S
         footer(ctx),
     },
   ];
-}
-
-export function yen(amount: number): string {
-  return `${amount.toLocaleString('ja-JP')}円`;
 }
 
 /** 支払い方法ごとの案内。承認メールと支払い方法変更メールで使う */

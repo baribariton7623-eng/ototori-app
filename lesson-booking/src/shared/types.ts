@@ -7,6 +7,18 @@ export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=日曜
 
 export type Plan = 'free' | 'pro';
 
+/** プランごとの上限。null は無制限 */
+export interface PlanLimits {
+  /** 連携できるカレンダー数 */
+  maxCalendars: number | null;
+  /** 1 暦月あたりに受けられる確定予約数(レッスン日基準) */
+  maxBookingsPerMonth: number | null;
+  /** Google カレンダーへの書き込み(イベント作成)可否 */
+  calendarWrite: boolean;
+  /** キャンセルフィーのオンライン決済(講師の Stripe アカウントで受け取る) */
+  onlineFeeCollection: boolean;
+}
+
 /** キャンセルフィーの支払い方法 */
 export type FeeMethod = 'card' | 'bank_transfer' | 'in_person';
 export type SubscriptionStatus = 'none' | 'active' | 'past_due' | 'canceled';

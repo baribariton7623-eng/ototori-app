@@ -1,6 +1,6 @@
 import Stripe from 'stripe';
 import { DomainError } from '../domain/errors.js';
-import type { Host, Organization } from '../domain/types.js';
+import type { Host, Organization } from '../shared/types.js';
 import type { HostRepository, OrganizationRepository } from '../repo/Repository.js';
 import type { BillingEvent, BillingProvider } from './BillingProvider.js';
 

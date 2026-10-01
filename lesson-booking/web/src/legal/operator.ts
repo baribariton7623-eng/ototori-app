@@ -41,7 +41,3 @@ export const OPERATOR_ENV: Record<OperatorKey, string> = {
   orgSeatPrice: 'VITE_ORG_SEAT_PRICE',
   effectiveDate: 'VITE_LEGAL_EFFECTIVE_DATE',
 };
-
-export function missingOperatorFields(): string[] {
-  return (Object.keys(OPERATOR_ENV) as OperatorKey[]).filter((k) => operator[k] === null).map((k) => OPERATOR_ENV[k]);
-}

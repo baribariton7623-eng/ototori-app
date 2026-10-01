@@ -18,11 +18,12 @@ import {
   randomSlug,
 } from '../domain/plans.js';
 import { monthRange } from '../domain/time.js';
-import type { Host } from '../domain/types.js';
+import type { Host } from '../shared/types.js';
 import {
   BOOKING_HORIZON_DAYS,
   FEE_METHODS,
   FEE_METHOD_LABELS,
+  DEFAULT_RESCHEDULE_RANGE_DAYS,
   LATE_CHANGE_OPTION_LABELS,
   MAX_RESCHEDULE_RANGE_DAYS,
   MIN_RESCHEDULE_RANGE_DAYS,
@@ -33,7 +34,6 @@ import {
   MAX_LATE_CHANGE_THRESHOLD_DAYS,
   MIN_BOOKING_HORIZON_DAYS,
   MIN_LATE_CHANGE_THRESHOLD_DAYS,
-  RESCHEDULE_RANGE_DAYS,
   isLateChange,
 } from '../domain/rules.js';
 import { isValidTimeString, isValidTimeZone, timeStringToMinutes } from '../domain/time.js';
@@ -215,7 +215,7 @@ export function createApp(deps: AppDeps): express.Express {
         rescheduleRangeDays: { min: MIN_RESCHEDULE_RANGE_DAYS, max: MAX_RESCHEDULE_RANGE_DAYS },
       },
       // 既定値。実際の範囲は講師ごと(公開情報の rescheduleRangeDays)
-      rescheduleRangeDays: RESCHEDULE_RANGE_DAYS,
+      rescheduleRangeDays: DEFAULT_RESCHEDULE_RANGE_DAYS,
       rescheduleRangeLimits: { min: MIN_RESCHEDULE_RANGE_DAYS, max: MAX_RESCHEDULE_RANGE_DAYS },
       lateChangeOptions: LATE_CHANGE_OPTIONS.map((value) => ({ value, label: LATE_CHANGE_OPTION_LABELS[value] })),
       feeMethods: FEE_METHODS.map((value) => ({ value, label: FEE_METHOD_LABELS[value] })),
@@ -301,7 +301,7 @@ function hostRoutes(deps: AppDeps): Router {
       orgPlanActive: false,
       timezone: body.timezone ?? deps.defaultTimezone,
       lessonMinutes: body.lessonMinutes ?? 60,
-      rescheduleRangeDays: body.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
+      rescheduleRangeDays: body.rescheduleRangeDays ?? DEFAULT_RESCHEDULE_RANGE_DAYS,
       lateChangeThresholdDays: body.lateChangeThresholdDays ?? LATE_CHANGE_THRESHOLD_DAYS,
       bookingHorizonDays: body.bookingHorizonDays ?? BOOKING_HORIZON_DAYS,
       minLeadMinutes: body.minLeadMinutes ?? 60,
@@ -850,7 +850,7 @@ function decorate<T extends { startAt: string; status: string }>(booking: T, now
     ...booking,
     requiresApprovalToChange: booking.status === 'confirmed' && isLateChange(new Date(booking.startAt), now, threshold),
     lateChangeThresholdDays: threshold,
-    rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
+    rescheduleRangeDays: host?.rescheduleRangeDays ?? DEFAULT_RESCHEDULE_RANGE_DAYS,
   };
 }
 

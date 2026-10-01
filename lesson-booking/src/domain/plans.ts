@@ -1,17 +1,7 @@
 import { FEE_METHODS } from './rules.js';
-import type { FeeMethod, Host, Plan } from './types.js';
+import type { FeeMethod, Host, Plan, PlanLimits } from '../shared/types.js';
 
-/** プランごとの上限。null は無制限 */
-export interface PlanLimits {
-  /** 連携できるカレンダー数 */
-  maxCalendars: number | null;
-  /** 1 暦月あたりに受けられる確定予約数(レッスン日基準) */
-  maxBookingsPerMonth: number | null;
-  /** Google カレンダーへの書き込み(イベント作成)可否 */
-  calendarWrite: boolean;
-  /** キャンセルフィーのオンライン決済(講師の Stripe アカウントで受け取る) */
-  onlineFeeCollection: boolean;
-}
+export type { PlanLimits };
 
 export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
   free: { maxCalendars: 1, maxBookingsPerMonth: 10, calendarWrite: false, onlineFeeCollection: false },

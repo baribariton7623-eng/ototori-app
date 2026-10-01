@@ -1,7 +1,7 @@
 import type { ConnectEvent, FeePaymentProvider } from '../billing/FeePaymentProvider.js';
 import { DomainError } from '../domain/errors.js';
 import { PLAN_LABELS, canCollectFeeOnline, limitsFor } from '../domain/plans.js';
-import type { Booking, Host, Student } from '../domain/types.js';
+import type { Booking, Host, Student } from '../shared/types.js';
 import { safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Repositories } from '../repo/Repository.js';
 

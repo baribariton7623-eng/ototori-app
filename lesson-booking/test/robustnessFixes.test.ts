@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { Booking } from '../src/domain/types.js';
+import type { Booking } from '../src/shared/types.js';
 import { devUser, insertBooking as insertBookingFor, jst, setupWorld, startApi, type TestApi, type TestWorld } from './helpers.js';
 
 const TEACHER = devUser('teacher@example.com', '講師A');

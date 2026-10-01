@@ -1,6 +1,6 @@
 import type { BillingEvent, BillingProvider } from '../billing/BillingProvider.js';
 import { DomainError } from '../domain/errors.js';
-import type { Host, Organization, SubscriptionStatus } from '../domain/types.js';
+import type { Host, Organization, SubscriptionStatus } from '../shared/types.js';
 import type { Repositories } from '../repo/Repository.js';
 
 /** 課金イベントを主催者のプラン状態に反映する */

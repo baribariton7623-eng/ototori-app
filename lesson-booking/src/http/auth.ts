@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { jwtVerify } from 'jose';
 import { DomainError } from '../domain/errors.js';
-import type { Host, Student } from '../domain/types.js';
+import type { Host, Student } from '../shared/types.js';
 import type { Repositories } from '../repo/Repository.js';
 
 /** 認証済みユーザー。主催者として登録済みなら host が入る */

@@ -9,7 +9,7 @@ import type {
   Organization,
   OrgInvitation,
   Student,
-} from '../domain/types.js';
+} from '../shared/types.js';
 import type {
   AvailabilityWindowRepository,
   BookingListRange,

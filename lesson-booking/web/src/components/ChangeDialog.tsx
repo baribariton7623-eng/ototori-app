@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api/client';
 import { api } from '../api/client';
 import type { ChangeKind, ChangeOutcome, FeeMethod, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
-import { addDays, daysLabel, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
+import { addDays, daysLabel, fmtFull, fmtRange, lateChangeOptionLabel, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
 
@@ -184,7 +184,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
                     >
                       <input type="radio" name="option" className="mt-0.5" checked={option === o.value} disabled={unavailable} onChange={() => setOption(o.value)} />
                       <span>
-                        {optionLabel(rules.lateChangeOptions, o.value, rangeDays)}
+                        {lateChangeOptionLabel(o.value, rangeDays)}
                         {o.value === 'pay_cancellation_fee' && host?.cancellationFeeAmount != null && (
                           <span className="ml-1 font-medium">({yen(host.cancellationFeeAmount)})</span>
                         )}

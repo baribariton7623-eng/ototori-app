@@ -1,4 +1,4 @@
-import type { BusyInterval } from '../domain/types.js';
+import type { BusyInterval } from '../shared/types.js';
 
 export interface CalendarEventInput {
   calendarId: string;

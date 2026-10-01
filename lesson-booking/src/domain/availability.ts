@@ -7,7 +7,7 @@ import {
   weekdayOfLocalDate,
   zonedToUtc,
 } from './time.js';
-import type { AvailabilityWindow, BusyInterval, Slot } from './types.js';
+import type { AvailabilityWindow, BusyInterval, Slot } from '../shared/types.js';
 
 export interface AvailabilityParams {
   windows: readonly AvailabilityWindow[];
@@ -91,10 +91,4 @@ function dedupe(slots: Slot[]): Slot[] {
     prev = s.startAt;
   }
   return out;
-}
-
-/** 指定の開始時刻が空き枠一覧に含まれるか */
-export function slotExists(slots: readonly Slot[], startAt: Date): boolean {
-  const iso = startAt.toISOString();
-  return slots.some((s) => s.startAt === iso);
 }

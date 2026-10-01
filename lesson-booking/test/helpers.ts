@@ -13,7 +13,7 @@ import { EmailNotifier } from '../src/notify/EmailNotifier.js';
 import { AccountService, type AccountCleanup } from '../src/services/AccountService.js';
 import { BillingService } from '../src/services/BillingService.js';
 import { ReminderService } from '../src/services/ReminderService.js';
-import type { Booking, Host, Student, Weekday } from '../src/domain/types.js';
+import type { Booking, Host, Student, Weekday } from '../src/shared/types.js';
 import { createInMemoryRepositories, type Clock } from '../src/repo/InMemoryRepositories.js';
 import type { Repositories } from '../src/repo/Repository.js';
 import { AvailabilityService } from '../src/services/AvailabilityService.js';

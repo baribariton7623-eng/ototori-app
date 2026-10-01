@@ -7,7 +7,7 @@ import type {
   Organization,
   OrgInvitation,
   Student,
-} from '../domain/types.js';
+} from '../shared/types.js';
 
 export interface HostRepository {
   create(input: Omit<Host, 'id' | 'createdAt'>): Promise<Host>;

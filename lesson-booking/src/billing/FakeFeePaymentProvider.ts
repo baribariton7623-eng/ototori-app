@@ -1,4 +1,4 @@
-import type { Booking, Host, Student } from '../domain/types.js';
+import type { Booking, Host, Student } from '../shared/types.js';
 import type { ConnectEvent, FeePaymentProvider } from './FeePaymentProvider.js';
 
 /**

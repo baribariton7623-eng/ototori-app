@@ -1,4 +1,4 @@
-import type { Host, Organization } from '../domain/types.js';
+import type { Host, Organization } from '../shared/types.js';
 import type { BillingEvent, BillingProvider } from './BillingProvider.js';
 
 /**

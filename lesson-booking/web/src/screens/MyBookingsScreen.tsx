@@ -4,7 +4,7 @@ import type { ChangeOutcome, ChangeRequest, Rules, StudentBooking } from '../api
 import { ChangeDialog } from '../components/ChangeDialog';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
-import { daysLabel, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
+import { daysLabel, fmtFull, fmtRange, lateChangeOptionLabel, yen } from '../lib/format';
 
 
 const STATUS_JA: Record<ChangeRequest['status'], string> = { pending: '承認待ち', approved: '承認', rejected: '却下' };
@@ -92,7 +92,7 @@ export function MyBookingsScreen({
               {pending && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900 space-y-0.5">
                   <div>
-                    {KIND_JA[pending.kind]}を申請中 — {optionLabel(rules.lateChangeOptions, pending.option, b.rescheduleRangeDays)}
+                    {KIND_JA[pending.kind]}を申請中 — {lateChangeOptionLabel(pending.option, b.rescheduleRangeDays)}
                     {pending.feeMethod && `(${rules.feeMethods.find((m) => m.value === pending.feeMethod)?.label})`}
                   </div>
                   {pending.proposedStartAts.map((c, i) => (
@@ -191,7 +191,7 @@ function History({ requests, rules, rangeDays }: { requests: ChangeRequest[]; ru
         {requests.map((r) => (
           <li key={r.id} className="rounded bg-stone-50 p-2">
             <div>
-              {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {optionLabel(rules.lateChangeOptions, r.option, rangeDays)} → <b>{STATUS_JA[r.status]}</b>
+              {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {lateChangeOptionLabel(r.option, rangeDays)} → <b>{STATUS_JA[r.status]}</b>
             </div>
             <div>「{r.message}」</div>
             {r.proposedStartAts.length > 0 && (

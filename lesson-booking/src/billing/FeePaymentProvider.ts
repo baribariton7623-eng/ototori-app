@@ -1,4 +1,4 @@
-import type { Booking, Host, Student } from '../domain/types.js';
+import type { Booking, Host, Student } from '../shared/types.js';
 
 /** 講師の Stripe アカウント(Connect)まわりの出来事を正規化したもの */
 export type ConnectEvent =

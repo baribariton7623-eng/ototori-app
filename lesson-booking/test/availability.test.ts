@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeAvailableSlots } from '../src/domain/availability.js';
 import { zonedToUtc } from '../src/domain/time.js';
-import type { AvailabilityWindow } from '../src/domain/types.js';
+import type { AvailabilityWindow } from '../src/shared/types.js';
 import { jst } from './helpers.js';
 
 const win = (weekday: AvailabilityWindow['weekday'], startTime: string, endTime: string): AvailabilityWindow => ({

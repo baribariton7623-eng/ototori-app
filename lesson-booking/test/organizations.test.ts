@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { effectivePlan, limitsFor } from '../src/domain/plans.js';
-import type { Host } from '../src/domain/types.js';
+import type { Host } from '../src/shared/types.js';
 import { setupWorld, type TestWorld } from './helpers.js';
 
 let w: TestWorld;

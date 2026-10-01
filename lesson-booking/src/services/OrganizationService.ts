@@ -1,6 +1,6 @@
 import { DomainError } from '../domain/errors.js';
 import { SLUG_PATTERN } from '../domain/plans.js';
-import type { Host, Organization, OrgInvitation } from '../domain/types.js';
+import type { Host, Organization, OrgInvitation } from '../shared/types.js';
 import { safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';

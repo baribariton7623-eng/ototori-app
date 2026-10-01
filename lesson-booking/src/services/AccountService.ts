@@ -1,5 +1,5 @@
 import { DomainError } from '../domain/errors.js';
-import type { Host, Student } from '../domain/types.js';
+import type { Host, Student } from '../shared/types.js';
 import type { Repositories } from '../repo/Repository.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { BillingService } from './BillingService.js';
@@ -13,11 +13,6 @@ export interface AccountCleanup {
   /** ログイン基盤(Supabase Auth)のユーザー削除。subject は JWT の sub */
   deleteAuthUser(subject: string): Promise<void>;
 }
-
-export const noopCleanup: AccountCleanup = {
-  async revokeGoogle() {},
-  async deleteAuthUser() {},
-};
 
 export const HOST_DELETION_REASON =
   '講師がサービスの利用を終了したため、このレッスンはキャンセルとなりました。ご迷惑をおかけして申し訳ありません。';

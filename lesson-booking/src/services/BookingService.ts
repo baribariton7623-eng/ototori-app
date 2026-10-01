@@ -9,7 +9,7 @@ import {
   isLateChange,
   validateLateChangeRequest,
 } from '../domain/rules.js';
-import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOption, Student } from '../domain/types.js';
+import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOption, Student } from '../shared/types.js';
 import { noopNotifier, safeNotify, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';

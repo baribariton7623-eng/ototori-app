@@ -3,13 +3,13 @@ import { DomainError } from '../src/domain/errors.js';
 import {
   BOOKING_HORIZON_DAYS,
   LATE_CHANGE_OPTION_LABELS,
-  RESCHEDULE_RANGE_DAYS,
+  DEFAULT_RESCHEDULE_RANGE_DAYS,
   isLateChange,
   isWithinBookingWindow,
   isWithinRescheduleRange,
   validateLateChangeRequest,
 } from '../src/domain/rules.js';
-import type { Booking } from '../src/domain/types.js';
+import type { Booking } from '../src/shared/types.js';
 import { NOW, jst } from './helpers.js';
 
 const booking: Booking = {
@@ -50,7 +50,7 @@ describe('直前変更の判定(14日未満)', () => {
 describe('振替範囲(元の日から前後7日以内)', () => {
   const original = jst('2026-10-10T10:00:00');
   it('範囲は 7 日', () => {
-    expect(RESCHEDULE_RANGE_DAYS).toBe(7);
+    expect(DEFAULT_RESCHEDULE_RANGE_DAYS).toBe(7);
     expect(LATE_CHANGE_OPTION_LABELS.reschedule_within_two_weeks).toBe('1週間以内の別日に振替を希望する');
   });
   it('前後7日ちょうどまでは可', () => {

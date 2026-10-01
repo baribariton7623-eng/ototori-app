@@ -1,4 +1,4 @@
-import type { Booking, ChangeKind, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
+import type { Booking, ChangeKind, ChangeRequest, Host, Organization, Student } from '../shared/types.js';
 
 interface Parties {
   host: Host;

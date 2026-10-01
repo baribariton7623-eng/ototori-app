@@ -2,7 +2,7 @@ import type { CalendarClient } from '../calendar/CalendarClient.js';
 import { computeAvailableSlots } from '../domain/availability.js';
 import { DomainError } from '../domain/errors.js';
 import { bookingWindow } from '../domain/rules.js';
-import type { BusyInterval, Host, Slot } from '../domain/types.js';
+import type { BusyInterval, Host, Slot } from '../shared/types.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
 

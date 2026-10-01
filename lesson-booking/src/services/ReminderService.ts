@@ -1,4 +1,4 @@
-import type { Host, Student } from '../domain/types.js';
+import type { Host, Student } from '../shared/types.js';
 import type { Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
