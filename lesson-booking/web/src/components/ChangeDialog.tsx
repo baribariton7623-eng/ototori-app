@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError } from '../api/client';
 import { api } from '../api/client';
 import type { ChangeKind, ChangeOutcome, FeeMethod, LateChangeOption, PublicHost, Rules, Slot, StudentBooking } from '../api/types';
-import { addDays, fmtFull, fmtRange, yen } from '../lib/format';
+import { addDays, fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
 import { SlotPicker } from './SlotPicker';
 import { ErrorBanner, Modal, Notice } from './ui';
 
@@ -28,6 +29,10 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
   const [busy, setBusy] = useState(false);
   const [host, setHost] = useState<PublicHost | null>(null);
   const [feeMethod, setFeeMethod] = useState<FeeMethod | ''>('');
+  /** 一覧を取り直したときに埋まっていて選択から外した希望の通知 */
+  const [removedNotice, setRemovedNotice] = useState<string | null>(null);
+  /** 講師の振替期間(元の日から前後の日数) */
+  const rangeDays = host?.rescheduleRangeDays ?? booking.rescheduleRangeDays ?? rules.rescheduleRangeDays;
 
   useEffect(() => {
     api.hostPublic(booking.hostId).then(setHost).catch(() => setHost(null));
@@ -64,23 +69,43 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
     });
   }
 
-  // 振替候補: 元の日の前後 rescheduleRangeDays 日(直前時)/ 受付ウィンドウ全体(猶予あり)
+  // 振替候補: 元の日の前後 rangeDays 日(直前時)/ 受付ウィンドウ全体(猶予あり)。
+  // 予約できる枠だけを表示し、開いている間も定期的に取り直して、埋まった枠は一覧と選択から外す
+  const proposedRef = useRef<string[]>([]);
+  proposedRef.current = proposed;
+  const fetchSlots = useCallback(async () => {
+    const origin = new Date(booking.startAt);
+    const from = late ? addDays(origin, -rangeDays) : undefined;
+    const to = late ? addDays(origin, rangeDays) : undefined;
+    const r = await api.slots(booking.hostId, from, to);
+    const available = r.slots.filter((s) => s.startAt !== booking.startAt);
+    setSlots(available);
+    const open = new Set(available.map((s) => s.startAt));
+    const gone = proposedRef.current.filter((p) => !open.has(p));
+    if (gone.length > 0) {
+      setProposed((cur) => cur.filter((p) => open.has(p)));
+      setRemovedNotice(`${gone.map((g) => fmtFull(g)).join('、')} は予約できなくなったため、希望から外しました。`);
+    }
+  }, [booking.hostId, booking.startAt, late, rangeDays]);
+
   useEffect(() => {
     if (!needsSlot) return;
-    let cancelled = false;
-    const origin = new Date(booking.startAt);
-    const from = late ? addDays(origin, -rules.rescheduleRangeDays) : undefined;
-    const to = late ? addDays(origin, rules.rescheduleRangeDays) : undefined;
-    api
-      .slots(booking.hostId, from, to)
-      .then((r) => {
-        if (!cancelled) setSlots(r.slots.filter((s) => s.startAt !== booking.startAt));
-      })
-      .catch((e) => !cancelled && setError(e));
-    return () => {
-      cancelled = true;
+    let active = true;
+    const run = () => {
+      if (active) fetchSlots().catch((e) => active && setError(e));
     };
-  }, [needsSlot, late, booking.hostId, booking.startAt, rules.rescheduleRangeDays]);
+    run();
+    const timer = window.setInterval(run, 30_000);
+    const onVisible = () => document.visibilityState === 'visible' && run();
+    window.addEventListener('focus', run);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', run);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [needsSlot, fetchSlots]);
 
   const canSubmit =
     !busy &&
@@ -102,6 +127,10 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
       onDone(outcome);
     } catch (e) {
       setError(e);
+      // 申請までの間に埋まった枠があれば、一覧を取り直して選択から外す
+      if (e instanceof ApiError && e.code === 'slot_unavailable' && needsSlot) {
+        await fetchSlots().catch(() => {});
+      }
     } finally {
       setBusy(false);
     }
@@ -151,7 +180,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
                     >
                       <input type="radio" name="option" className="mt-0.5" checked={option === o.value} disabled={unavailable} onChange={() => setOption(o.value)} />
                       <span>
-                        {o.label}
+                        {optionLabel(rules.lateChangeOptions, o.value, rangeDays)}
                         {o.value === 'pay_cancellation_fee' && host?.cancellationFeeAmount != null && (
                           <span className="ml-1 font-medium">({yen(host.cancellationFeeAmount)})</span>
                         )}
@@ -200,7 +229,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
           <div className="space-y-2">
             <div className="label">
               {late
-                ? `振替の希望日時(第1〜第${maxCandidates}希望まで・元の日から前後${rules.rescheduleRangeDays}日以内)`
+                ? `振替の希望日時(第1〜第${maxCandidates}希望まで・元の日から前後${rangeDays}日以内)`
                 : '変更先の日時'}
             </div>
             {late && (
@@ -230,13 +259,19 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
                 ))}
               </ol>
             )}
+            {removedNotice && (
+              <p className="text-xs text-amber-800" role="status">
+                {removedNotice}
+                <button type="button" className="ml-1 underline" onClick={() => setRemovedNotice(null)}>閉じる</button>
+              </p>
+            )}
             {late && proposed.length >= maxCandidates && (
               <p className="text-xs text-amber-800">第{maxCandidates}希望まで選びました。変えるときは「外す」を押してください。</p>
             )}
             {slots === null ? (
               <div className="text-sm text-stone-500">空き枠を取得中…</div>
             ) : (
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-stone-200 p-2 pt-3">
+              <div className="max-h-64 overflow-y-auto rounded-lg border border-stone-200 p-2 pt-3" aria-label="予約できる日時">
                 <SlotPicker slots={slots} selected={late ? proposed : (proposed[0] ?? null)} onSelect={toggleCandidate} />
               </div>
             )}

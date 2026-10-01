@@ -8,8 +8,12 @@ export const BOOKING_HORIZON_DAYS = 40;
 /** レッスン開始までこの日数未満のキャンセル・変更は主催者承認が必要 */
 export const LATE_CHANGE_THRESHOLD_DAYS = 14;
 
-/** 振替先は元のレッスン日から前後この日数以内 */
-export const RESCHEDULE_RANGE_DAYS = 7;
+/** 振替先の範囲(元のレッスン日から前後の日数)の既定値。講師ごとに変更できる(Host.rescheduleRangeDays) */
+export const DEFAULT_RESCHEDULE_RANGE_DAYS = 7;
+export const MIN_RESCHEDULE_RANGE_DAYS = 1;
+export const MAX_RESCHEDULE_RANGE_DAYS = 30;
+/** 互換のための別名(既定値) */
+export const RESCHEDULE_RANGE_DAYS = DEFAULT_RESCHEDULE_RANGE_DAYS;
 
 /** 日数を「1週間」「10日」のような表示にする */
 export function daysLabel(days: number): string {
@@ -25,6 +29,13 @@ export const LATE_CHANGE_OPTIONS: readonly LateChangeOption[] = [
   'pay_cancellation_fee',
 ] as const;
 
+/** 講師の振替期間に合わせた対応方法の表示名 */
+export function lateChangeOptionLabel(option: LateChangeOption, rescheduleRangeDays: number = DEFAULT_RESCHEDULE_RANGE_DAYS): string {
+  if (option === 'reschedule_within_two_weeks') return `${daysLabel(rescheduleRangeDays)}以内の別日に振替を希望する`;
+  return LATE_CHANGE_OPTION_LABELS[option];
+}
+
+/** 既定の振替期間での表示名(講師が決まっていない場面用) */
 export const LATE_CHANGE_OPTION_LABELS: Record<LateChangeOption, string> = {
   request_approval: '事情を説明して承認を求める',
   // 値(reschedule_within_two_weeks)は保存済みデータと互換のため据え置き。表示は範囲の定数から作る
@@ -69,9 +80,13 @@ export function isLateChange(lessonStartAt: Date, now: Date): boolean {
   return diffDays(lessonStartAt, now) < LATE_CHANGE_THRESHOLD_DAYS;
 }
 
-/** 振替先が元のレッスン日から前後 RESCHEDULE_RANGE_DAYS 日以内か */
-export function isWithinRescheduleRange(originalStartAt: Date, proposedStartAt: Date): boolean {
-  return Math.abs(diffDays(proposedStartAt, originalStartAt)) <= RESCHEDULE_RANGE_DAYS;
+/** 振替先が元のレッスン日から前後 rangeDays 日以内か */
+export function isWithinRescheduleRange(
+  originalStartAt: Date,
+  proposedStartAt: Date,
+  rangeDays: number = DEFAULT_RESCHEDULE_RANGE_DAYS,
+): boolean {
+  return Math.abs(diffDays(proposedStartAt, originalStartAt)) <= rangeDays;
 }
 
 export interface LateChangeInput {
@@ -80,6 +95,8 @@ export interface LateChangeInput {
   message: string | undefined;
   /** 第1希望から順 */
   proposedStartAts: Date[];
+  /** 講師の振替期間(元の日から前後の日数)。省略時は既定値 */
+  rescheduleRangeDays?: number;
 }
 
 /**
@@ -87,7 +104,7 @@ export interface LateChangeInput {
  * - メッセージ必須
  * - 対応方法(3択)必須
  * - 振替(kind=reschedule / option=reschedule_within_two_weeks)は希望日時が 1〜3 件必須(重複不可)で、
- *   いずれも元の日から前後 RESCHEDULE_RANGE_DAYS 日以内・元の日時とは別
+ *   いずれも元の日から前後 rescheduleRangeDays 日以内・元の日時とは別
  */
 export function validateLateChangeRequest(booking: Booking, input: LateChangeInput): {
   option: LateChangeOption;
@@ -105,7 +122,7 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
   if (!input.option || !LATE_CHANGE_OPTIONS.includes(input.option)) {
     throw new DomainError(
       'late_change_requires_request',
-      `対応方法(承認を求める / ${daysLabel(RESCHEDULE_RANGE_DAYS)}以内の別日に振替 / キャンセルフィーを支払う)を選択してください`,
+      `対応方法(承認を求める / ${daysLabel(input.rescheduleRangeDays ?? DEFAULT_RESCHEDULE_RANGE_DAYS)}以内の別日に振替 / キャンセルフィーを支払う)を選択してください`,
       { field: 'option', allowed: LATE_CHANGE_OPTIONS },
     );
   }
@@ -116,12 +133,14 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
 
   const needsProposed = input.kind === 'reschedule' || input.option === 'reschedule_within_two_weeks';
   if (needsProposed) {
+    const range = input.rescheduleRangeDays ?? DEFAULT_RESCHEDULE_RANGE_DAYS;
     const candidates = validateCandidates(booking, input.proposedStartAts);
     for (const c of candidates) {
-      if (!isWithinRescheduleRange(new Date(booking.startAt), c)) {
-        throw new DomainError('validation', `振替先は元のレッスン日から${RESCHEDULE_RANGE_DAYS}日以内で指定してください`, {
+      if (!isWithinRescheduleRange(new Date(booking.startAt), c, range)) {
+        throw new DomainError('validation', `振替先は元のレッスン日から前後${range}日以内で指定してください`, {
           field: 'proposedStartAts',
           originalStartAt: booking.startAt,
+          rangeDays: range,
           invalid: c.toISOString(),
         });
       }

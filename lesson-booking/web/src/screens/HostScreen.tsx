@@ -379,6 +379,7 @@ function SettingsTab({
     bio: host.bio,
     lessonMinutes: host.lessonMinutes,
     minLeadMinutes: host.minLeadMinutes,
+    rescheduleRangeDays: host.rescheduleRangeDays,
   });
   const [win, setWin] = useState({ weekday: 1, startTime: '10:00', endTime: '18:00' });
   const [cal, setCal] = useState<{ calendarId: string; label: string; role: HostCalendar['role'] }>({ calendarId: '', label: '', role: 'busy_source' });
@@ -610,6 +611,29 @@ function SettingsTab({
             <label className="label" htmlFor="h-lead">受付締切(開始の何分前まで)</label>
             <input id="h-lead" className="input" type="number" min={0} step={30} value={form.minLeadMinutes} onChange={(e) => setForm({ ...form, minLeadMinutes: Number(e.target.value) })} />
           </div>
+        </div>
+        <div>
+          <label className="label" htmlFor="h-range">
+            振替を受け付ける期間(元のレッスン日から前後{rules.rescheduleRangeLimits.min}〜{rules.rescheduleRangeLimits.max}日)
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm">前後</span>
+            <input
+              id="h-range"
+              className="input w-24"
+              type="number"
+              min={rules.rescheduleRangeLimits.min}
+              max={rules.rescheduleRangeLimits.max}
+              value={form.rescheduleRangeDays}
+              onChange={(e) => setForm({ ...form, rescheduleRangeDays: Number(e.target.value) })}
+            />
+            <span className="text-sm">日以内</span>
+          </div>
+          <p className="mt-1 text-xs text-stone-500">
+            開始2週間前を過ぎた振替の申請で、生徒が選べる日時の範囲です。生徒の選択肢は「
+            {form.rescheduleRangeDays % 7 === 0 ? `${form.rescheduleRangeDays / 7}週間` : `${form.rescheduleRangeDays}日`}
+            以内の別日に振替を希望する」と表示されます。変更前に受け付けた申請は、そのまま承認できます。
+          </p>
         </div>
         <div>
           <label className="label" htmlFor="h-bio">紹介文(予約ページに表示)</label>

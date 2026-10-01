@@ -17,7 +17,9 @@ export interface PlanLimits {
 export interface Rules {
   bookingHorizonDays: number;
   lateChangeThresholdDays: number;
+  /** 振替期間の既定値(実際の範囲は講師ごと) */
   rescheduleRangeDays: number;
+  rescheduleRangeLimits: { min: number; max: number };
   lateChangeOptions: { value: LateChangeOption; label: string }[];
   feeMethods: { value: FeeMethod; label: string }[];
   plans: { plan: Plan; label: string; limits: PlanLimits }[];
@@ -58,6 +60,7 @@ export interface Host {
   orgPlanActive: boolean;
   timezone: string;
   lessonMinutes: number;
+  rescheduleRangeDays: number;
   minLeadMinutes: number;
   createdAt: string;
 }
@@ -69,6 +72,7 @@ export interface PublicHost {
   bio: string;
   timezone: string;
   lessonMinutes: number;
+  rescheduleRangeDays: number;
   cancellationFeeAmount: number | null;
   onlineFeePayment: boolean;
   /** 生徒が今選べる支払い方法 */
@@ -119,6 +123,8 @@ export interface StudentBooking extends Booking {
   feePayableOnline: boolean;
   /** 振込で承認された未払いの予約にだけ付く振込先 */
   bankTransferInfo?: string;
+  /** この予約の講師の振替期間(元の日から前後の日数) */
+  rescheduleRangeDays: number;
 }
 
 export interface ConnectStatus {

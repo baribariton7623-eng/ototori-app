@@ -481,3 +481,34 @@ describe('振替の希望日時 API', () => {
     expect(req.json.request.proposedStartAts).toEqual([jst('2026-10-07T16:00:00').toISOString()]);
   });
 });
+
+describe('振替期間の設定 API', () => {
+  it('講師が 1〜30 日で設定でき、公開情報と生徒の予約一覧・講師の申請一覧に反映される', async () => {
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { rescheduleRangeDays: 0 })).status).toBe(400);
+    expect((await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { rescheduleRangeDays: 31 })).status).toBe(400);
+    const ok = await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { rescheduleRangeDays: 10 });
+    expect(ok.status).toBe(200);
+    expect(ok.json.rescheduleRangeDays).toBe(10);
+
+    expect((await call('GET', '/hosts/by-slug/teacher-a', {})).json.rescheduleRangeDays).toBe(10);
+    const rules = await call('GET', '/rules', {});
+    expect(rules.json.rescheduleRangeLimits).toEqual({ min: 1, max: 30 });
+
+    const S6 = { 'x-dev-user-email': 'student6@example.com' };
+    const b = await call('POST', '/bookings', S6, { hostId: w.host.id, startAt: jst('2026-10-05T17:00:00').toISOString() });
+    expect((await call('GET', '/bookings', S6)).json[0].rescheduleRangeDays).toBe(10);
+    // 9 日後の候補は 10 日設定なら申請できる
+    const req = await call('POST', `/bookings/${b.json.id}/change`, S6, {
+      kind: 'reschedule',
+      option: 'reschedule_within_two_weeks',
+      message: 'x',
+      proposedStartAts: [jst('2026-10-14T17:00:00').toISOString()],
+    });
+    expect(req.status).toBe(202);
+    const list = await call('GET', `/hosts/${w.host.id}/change-requests`, TEACHER);
+    expect(list.json.find((c: { id: string }) => c.id === req.json.request.id).optionLabel).toBe('10日以内の別日に振替を希望する');
+
+    // 後続のテストに影響しないよう戻す
+    await call('PATCH', `/hosts/${w.host.id}`, TEACHER, { rescheduleRangeDays: 7 });
+  });
+});

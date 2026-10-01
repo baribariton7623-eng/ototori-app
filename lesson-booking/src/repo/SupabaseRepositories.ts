@@ -53,6 +53,7 @@ const hostFromRow = (r: Row): Host => ({
   orgPlanActive: (r.org_plan_active as boolean | null) ?? false,
   timezone: r.timezone as string,
   lessonMinutes: r.lesson_minutes as number,
+  rescheduleRangeDays: (r.reschedule_range_days as number | null) ?? 7,
   minLeadMinutes: r.min_lead_minutes as number,
   createdAt: r.created_at as string,
 });
@@ -74,6 +75,7 @@ const hostToRow = (h: Partial<Host>): Row => strip({
   org_plan_active: h.orgPlanActive,
   timezone: h.timezone,
   lesson_minutes: h.lessonMinutes,
+  reschedule_range_days: h.rescheduleRangeDays,
   min_lead_minutes: h.minLeadMinutes,
 });
 

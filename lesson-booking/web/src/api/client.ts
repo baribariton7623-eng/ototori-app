@@ -85,7 +85,19 @@ export const api = {
   updateHost: (
     hostId: string,
     patch: Partial<
-      Pick<Host, 'displayName' | 'slug' | 'bio' | 'timezone' | 'lessonMinutes' | 'minLeadMinutes' | 'cancellationFeeAmount' | 'feeMethods' | 'bankTransferInfo'>
+      Pick<
+        Host,
+        | 'displayName'
+        | 'slug'
+        | 'bio'
+        | 'timezone'
+        | 'lessonMinutes'
+        | 'minLeadMinutes'
+        | 'rescheduleRangeDays'
+        | 'cancellationFeeAmount'
+        | 'feeMethods'
+        | 'bankTransferInfo'
+      >
     >,
   ) =>
     request<Host>('PATCH', `/hosts/${hostId}`, patch),

@@ -24,6 +24,9 @@ import {
   FEE_METHODS,
   FEE_METHOD_LABELS,
   LATE_CHANGE_OPTION_LABELS,
+  MAX_RESCHEDULE_RANGE_DAYS,
+  MIN_RESCHEDULE_RANGE_DAYS,
+  lateChangeOptionLabel,
   LATE_CHANGE_OPTIONS,
   LATE_CHANGE_THRESHOLD_DAYS,
   RESCHEDULE_RANGE_DAYS,
@@ -85,6 +88,12 @@ const createHostSchema = z.object({
   bankTransferInfo: z.string().trim().max(500).optional(),
   timezone: z.string().trim().min(1).optional(),
   lessonMinutes: z.number().int().min(5).max(24 * 60).optional(),
+  rescheduleRangeDays: z
+    .number()
+    .int()
+    .min(MIN_RESCHEDULE_RANGE_DAYS, `振替期間は${MIN_RESCHEDULE_RANGE_DAYS}〜${MAX_RESCHEDULE_RANGE_DAYS}日で指定してください`)
+    .max(MAX_RESCHEDULE_RANGE_DAYS, `振替期間は${MIN_RESCHEDULE_RANGE_DAYS}〜${MAX_RESCHEDULE_RANGE_DAYS}日で指定してください`)
+    .optional(),
   minLeadMinutes: z.number().int().min(0).max(30 * 24 * 60).optional(),
 });
 const patchHostSchema = createHostSchema.partial();
@@ -183,7 +192,9 @@ export function createApp(deps: AppDeps): express.Express {
     res.json({
       bookingHorizonDays: BOOKING_HORIZON_DAYS,
       lateChangeThresholdDays: LATE_CHANGE_THRESHOLD_DAYS,
+      // 既定値。実際の範囲は講師ごと(公開情報の rescheduleRangeDays)
       rescheduleRangeDays: RESCHEDULE_RANGE_DAYS,
+      rescheduleRangeLimits: { min: MIN_RESCHEDULE_RANGE_DAYS, max: MAX_RESCHEDULE_RANGE_DAYS },
       lateChangeOptions: LATE_CHANGE_OPTIONS.map((value) => ({ value, label: LATE_CHANGE_OPTION_LABELS[value] })),
       feeMethods: FEE_METHODS.map((value) => ({ value, label: FEE_METHOD_LABELS[value] })),
       plans: (Object.keys(PLAN_LIMITS) as (keyof typeof PLAN_LIMITS)[]).map((plan) => ({
@@ -266,6 +277,7 @@ function hostRoutes(deps: AppDeps): Router {
       orgPlanActive: false,
       timezone: body.timezone ?? deps.defaultTimezone,
       lessonMinutes: body.lessonMinutes ?? 60,
+      rescheduleRangeDays: body.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
       minLeadMinutes: body.minLeadMinutes ?? 60,
     });
     res.status(201).json(host);
@@ -353,7 +365,7 @@ function hostRoutes(deps: AppDeps): Router {
       const [booking, student] = await Promise.all([repos.bookings.findById(c.bookingId), repos.students.findById(c.studentId)]);
       out.push({
         ...c,
-        optionLabel: LATE_CHANGE_OPTION_LABELS[c.option],
+        optionLabel: lateChangeOptionLabel(c.option, host.rescheduleRangeDays),
         feeMethodLabel: c.feeMethod ? FEE_METHOD_LABELS[c.feeMethod] : null,
         candidates: await deps.bookings.candidateAvailability(c),
         booking,
@@ -497,6 +509,7 @@ function publicHost(h: Host) {
     bio: h.bio,
     timezone: h.timezone,
     lessonMinutes: h.lessonMinutes,
+    rescheduleRangeDays: h.rescheduleRangeDays,
     cancellationFeeAmount: h.cancellationFeeAmount,
     onlineFeePayment: canCollectFeeOnline(h),
     /** 生徒が今選べる支払い方法(振込先そのものは公開しない) */
@@ -667,7 +680,12 @@ function studentRoutes(deps: AppDeps): Router {
     const now = deps.clock.now();
     const hosts = new Map<string, Host | null>();
     for (const b of list) if (!hosts.has(b.hostId)) hosts.set(b.hostId, await repos.hosts.findById(b.hostId));
-    res.json(list.map((b) => ({ ...decorate(b, now), ...feeInfo(b, hosts.get(b.hostId) ?? null) })));
+    res.json(
+      list.map((b) => {
+        const host = hosts.get(b.hostId) ?? null;
+        return { ...decorate(b, now), ...feeInfo(b, host), rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS };
+      }),
+    );
   }));
 
   r.get('/bookings/:id', wrap(async (req, res) => {
@@ -675,7 +693,12 @@ function studentRoutes(deps: AppDeps): Router {
     const booking = await deps.bookings.getBookingForStudent(param(req, 'id'), student);
     const requests = await repos.changeRequests.listByBooking(booking.id);
     const host = await repos.hosts.findById(booking.hostId);
-    res.json({ ...decorate(booking, deps.clock.now()), ...feeInfo(booking, host), changeRequests: requests });
+    res.json({
+      ...decorate(booking, deps.clock.now()),
+      ...feeInfo(booking, host),
+      rescheduleRangeDays: host?.rescheduleRangeDays ?? RESCHEDULE_RANGE_DAYS,
+      changeRequests: requests,
+    });
   }));
 
   // 未払いのキャンセルフィーをオンラインで支払う(講師の Stripe アカウントへ直接)

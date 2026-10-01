@@ -44,3 +44,18 @@ export function addDays(d: Date, n: number): Date {
 export function yen(amount: number): string {
   return `${amount.toLocaleString('ja-JP')}円`;
 }
+
+/** 7 の倍数は「1週間」、それ以外は「10日」 */
+export function daysLabel(days: number): string {
+  return days % 7 === 0 ? `${days / 7}週間` : `${days}日`;
+}
+
+/** 対応方法の表示名。振替は講師の振替期間に合わせる */
+export function optionLabel(
+  options: { value: string; label: string }[],
+  value: string,
+  rescheduleRangeDays: number,
+): string {
+  if (value === 'reschedule_within_two_weeks') return `${daysLabel(rescheduleRangeDays)}以内の別日に振替を希望する`;
+  return options.find((o) => o.value === value)?.label ?? value;
+}

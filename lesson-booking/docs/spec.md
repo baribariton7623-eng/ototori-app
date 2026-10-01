@@ -39,7 +39,9 @@
 ## 3. 業務ルール
 
 ### 3.1 予約受付ウィンドウ
-- 振替先の範囲は元のレッスン日から **前後 7 日**(`RESCHEDULE_RANGE_DAYS`)。選択肢の表示名(「1週間以内の別日に振替を希望する」)はこの定数から作る。値 `reschedule_within_two_weeks` は保存済みデータとの互換のため名前を据え置いている。
+- 振替先の範囲は元のレッスン日から **前後 N 日**。N は講師ごとの設定 `rescheduleRangeDays`(1〜30、既定 7 = `DEFAULT_RESCHEDULE_RANGE_DAYS`)。選択肢の表示名はこの値から作る(7 の倍数は「1週間」「2週間」、それ以外は「10日」)。値 `reschedule_within_two_weeks` は保存済みデータとの互換のため名前を据え置いている。
+- 申請時は講師の現在の設定で検証する。申請後に講師が期間を縮めても、受け付けた希望日時はそのまま承認できる(承認時は希望日時の中から選ぶことと空きだけを検証)。
+- 生徒が振替の希望日時を選ぶ一覧には、予約できる枠だけを出す(講師のカレンダーの予定・他の予約・受付期間外・過ぎた時刻・今の予約を除く)。一覧は開いている間 30 秒ごと、およびウィンドウに戻ったときに取り直し、埋まった枠は一覧と選択中の希望から外して案内する。申請時に埋まっていた場合(`slot_unavailable`)も取り直して外す。
 - 予約できるのは **操作時点から 40 日先まで**(`BOOKING_HORIZON_DAYS = 40`)。開始時刻が `now + 40日` 以下の枠のみ。
 - 直近側は主催者設定のリード時間(`minLeadMinutes`, 既定 60 分)より先の枠のみ。
 - 振替先の枠にも同じウィンドウを適用する。
@@ -76,14 +78,14 @@
 | 値 | 表示 | 意味 |
 | --- | --- | --- |
 | `request_approval` | 事情を説明して承認を求める | そのままキャンセル/変更の承認を求める |
-| `reschedule_within_two_weeks` | 1週間以内の別日に振替を希望する | 元のレッスン日から **前後 7 日以内**(`RESCHEDULE_RANGE_DAYS`)の空き枠を、**第1〜第3希望**として `proposedStartAts` に希望順で指定する(1〜3 件、必須) |
+| `reschedule_within_two_weeks` | ○○以内の別日に振替を希望する(○○は講師の振替期間。既定「1週間」) | 元のレッスン日から **前後 N 日以内**(N = 講師の `rescheduleRangeDays`、1〜30、既定 7)の空き枠を、**第1〜第3希望**として `proposedStartAts` に希望順で指定する(1〜3 件、必須) |
 | `pay_cancellation_fee` | キャンセルフィーを支払う | **キャンセルの申請でのみ選べる**。支払い方法(`feeMethod`: クレジットカード / 銀行振込 / 次回レッスン時に手渡し)の選択が必須で、主催者がキャンセルとあわせて承認する。承認時に `cancellationFeeStatus = pending`、主催者設定の金額を `cancellationFeeAmount`、支払い方法を `cancellationFeeMethod` に記録する(§3.8.1) |
 
 制約:
 - 1 予約につき `pending` の変更要求は 1 件まで(`change_request_pending`)。
 - 開始済み・終了済み・キャンセル済みの予約は変更できない(`invalid_state`)。
 - `kind = reschedule` の場合は `proposedStartAts` 必須。
-  - 直前(承認制): 1〜3 件。重複不可、今の予約と同じ日時は不可、いずれも元の日から前後 7 日以内・受付ウィンドウ内・申請時点で空いていること(埋まっていれば `slot_unavailable`、`details.rank` に何番目の希望か)。
+  - 直前(承認制): 1〜3 件。重複不可、今の予約と同じ日時は不可、いずれも元の日から前後 N 日以内(講師の設定)・受付ウィンドウ内・申請時点で空いていること(埋まっていれば `slot_unavailable`、`details.rank` に何番目の希望か)。
   - 猶予あり(即時反映): 承認がないため 1 件のみ。
   - 候補の枠は確保しない(3 枠を押さえると他の生徒が予約できなくなるため)。承認時に再検証する。
 - 承認待ちの間、元の枠は確定予約として扱い、他の生徒には空きとして見せない。
@@ -183,7 +185,7 @@ Postgres(Supabase)。時刻は `timestamptz`(UTC)。表示は主催者のタイ�
 
 ```
 lb_hosts                    主催者(テナント)
-  id, email(unique), display_name, slug(unique), bio, plan(free|pro),
+  id, email(unique), display_name, slug(unique), bio, plan(free|pro), reschedule_range_days(1〜30、既定 7),
   subscription_status(none|active|past_due|canceled), stripe_customer_id, stripe_subscription_id,
   cancellation_fee_amount, fee_methods(text[]), bank_transfer_info, stripe_connect_account_id(unique), connect_charges_enabled,
   timezone, lesson_minutes, min_lead_minutes, created_at
@@ -263,8 +265,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 ### 主催者
 | Method | Path | 説明 |
 | --- | --- | --- |
-| POST | `/hosts` | ログイン中ユーザーを主催者登録 `{displayName, slug?, bio?, timezone?, lessonMinutes?, minLeadMinutes?}` |
-| PATCH | `/hosts/{hostId}` | 主催者設定変更(slug, bio 含む) |
+| POST | `/hosts` | ログイン中ユーザーを主催者登録 `{displayName, slug?, bio?, timezone?, lessonMinutes?, minLeadMinutes?, rescheduleRangeDays?}` |
+| PATCH | `/hosts/{hostId}` | 主催者設定変更(slug, bio, 振替期間 `rescheduleRangeDays` など) |
 | GET | `/hosts/{hostId}/billing` | プラン・上限・今月の利用量・公開 URL |
 | POST | `/hosts/{hostId}/billing/checkout` | `{successUrl, cancelUrl}` → Stripe Checkout URL |
 | POST | `/hosts/{hostId}/billing/portal` | `{returnUrl}` → Customer Portal URL |
@@ -315,7 +317,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 3. **予約一覧**: `requiresApprovalToChange` が true の予約には「開始 2 週間以内のため変更には主催者の承認が必要です」と表示。
 4. **キャンセル/変更ダイアログ**:
    - 猶予あり: 確認のみで即時反映。
-   - 直前: メッセージ欄(必須)+ 対応方法ラジオ(3 択、`/rules` のラベルを使用)。「1週間以内の別日に振替」を選んだ場合は元の日の前後 7 日の空き枠から第1〜第3希望を選ぶピッカーを表示。送信後「主催者の承認をお待ちください」。
+   - 直前: メッセージ欄(必須)+ 対応方法ラジオ(3 択、`/rules` のラベルを使用)。「1週間以内の別日に振替」を選んだ場合は元の日の前後 N 日(講師の振替期間)の予約できる枠から第1〜第3希望を選ぶピッカーを表示。送信後「主催者の承認をお待ちください」。
 5. **予約詳細**: 変更要求の履歴(申請内容・主催者の判断・メモ)。
 
 ### 主催者
@@ -344,7 +346,8 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | 複数主催者(公開ページ slug・プラン上限) | 実装済み |
 | キャンセルフィーの支払い方法(カード・振込・手渡し)と講師承認 | 実装済み |
 | 振替の第1〜第3希望と、講師による振替先の選択 | 実装済み |
-| テスト | vitest 101 件、Playwright で主要フローを確認 |
+| 講師ごとの振替期間、振替候補の自動更新(埋まった枠を外す) | 実装済み |
+| テスト | vitest 107 件、Playwright で主要フローを確認 |
 | Stripe 課金 | 実装済み(実 Stripe アカウントでの確認は未実施。Fake で動作確認) |
 | 通知メール(Resend) | 実装済み(実 Resend アカウントでの送信確認は未実施。コンソール出力で確認) |
 | LP・利用規約・プライバシーポリシー・特商法表記 | 実装済み(運営者情報は環境変数で設定。文面は法的助言ではないため専門家の確認を推奨) |

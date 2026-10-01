@@ -4,7 +4,7 @@ import type { ChangeOutcome, ChangeRequest, Rules, StudentBooking } from '../api
 import { ChangeDialog } from '../components/ChangeDialog';
 import { DeleteAccount } from '../components/DeleteAccount';
 import { Badge, ErrorBanner, Notice, Spinner } from '../components/ui';
-import { fmtFull, fmtRange, yen } from '../lib/format';
+import { fmtFull, fmtRange, optionLabel, yen } from '../lib/format';
 
 type Detail = StudentBooking & { changeRequests: ChangeRequest[] };
 
@@ -98,7 +98,7 @@ export function MyBookingsScreen({
               {pending && (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-900 space-y-0.5">
                   <div>
-                    {KIND_JA[pending.kind]}を申請中 — {rules.lateChangeOptions.find((o) => o.value === pending.option)?.label}
+                    {KIND_JA[pending.kind]}を申請中 — {optionLabel(rules.lateChangeOptions, pending.option, b.rescheduleRangeDays)}
                     {pending.feeMethod && `(${rules.feeMethods.find((m) => m.value === pending.feeMethod)?.label})`}
                   </div>
                   {pending.proposedStartAts.map((c, i) => (
@@ -112,7 +112,7 @@ export function MyBookingsScreen({
                   キャンセル・変更
                 </button>
               </div>
-              <History requests={d?.changeRequests.filter((r) => r.status !== 'pending') ?? []} rules={rules} />
+              <History requests={d?.changeRequests.filter((r) => r.status !== 'pending') ?? []} rules={rules} rangeDays={b.rescheduleRangeDays} />
             </div>
           );
         })}
@@ -167,7 +167,7 @@ export function MyBookingsScreen({
                   )}
                 </div>
               )}
-              <History requests={details[b.id]?.changeRequests ?? []} rules={rules} />
+              <History requests={details[b.id]?.changeRequests ?? []} rules={rules} rangeDays={b.rescheduleRangeDays} />
             </div>
           ))}
         </section>
@@ -188,7 +188,7 @@ export function MyBookingsScreen({
   );
 }
 
-function History({ requests, rules }: { requests: ChangeRequest[]; rules: Rules }) {
+function History({ requests, rules, rangeDays }: { requests: ChangeRequest[]; rules: Rules; rangeDays: number }) {
   if (requests.length === 0) return null;
   return (
     <details className="text-xs text-stone-600">
@@ -197,7 +197,7 @@ function History({ requests, rules }: { requests: ChangeRequest[]; rules: Rules 
         {requests.map((r) => (
           <li key={r.id} className="rounded bg-stone-50 p-2">
             <div>
-              {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {rules.lateChangeOptions.find((o) => o.value === r.option)?.label} → <b>{STATUS_JA[r.status]}</b>
+              {fmtFull(r.createdAt)} {KIND_JA[r.kind]} / {optionLabel(rules.lateChangeOptions, r.option, rangeDays)} → <b>{STATUS_JA[r.status]}</b>
             </div>
             <div>「{r.message}」</div>
             {r.proposedStartAts.length > 0 && (

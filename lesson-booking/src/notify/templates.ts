@@ -1,5 +1,5 @@
 import { canCollectFeeOnline } from '../domain/plans.js';
-import { FEE_METHOD_LABELS, LATE_CHANGE_OPTION_LABELS } from '../domain/rules.js';
+import { FEE_METHOD_LABELS, lateChangeOptionLabel } from '../domain/rules.js';
 import type { Booking, ChangeRequest, Host, Organization, Student } from '../domain/types.js';
 import type { EmailMessage } from './EmailSender.js';
 
@@ -114,7 +114,7 @@ export function changeRequestedMails(ctx: TemplateContext, host: Host, student: 
   const kindJa = request.kind === 'cancel' ? 'キャンセル' : '日時変更';
   const proposed = request.proposedStartAts.map((c, i) => `\n第${i + 1}希望: ${fmt(c, tz)}`).join('');
   const option =
-    LATE_CHANGE_OPTION_LABELS[request.option] + (request.feeMethod ? `(支払い方法: ${FEE_METHOD_LABELS[request.feeMethod]})` : '');
+    lateChangeOptionLabel(request.option, host.rescheduleRangeDays) + (request.feeMethod ? `(支払い方法: ${FEE_METHOD_LABELS[request.feeMethod]})` : '');
   return [
     {
       to: host.email,

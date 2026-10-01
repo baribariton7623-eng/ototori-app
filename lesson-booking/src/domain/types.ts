@@ -42,6 +42,8 @@ export interface Host {
   timezone: string;
   /** 1レッスンの長さ(分) */
   lessonMinutes: number;
+  /** 直前の振替で選べる範囲。元のレッスン日から前後この日数以内(1〜30、既定 7) */
+  rescheduleRangeDays: number;
   /** 予約可能な最短リード時間(分)。今から何分後以降の枠を出すか */
   minLeadMinutes: number;
   createdAt: string;
@@ -113,7 +115,7 @@ export type ChangeKind = 'cancel' | 'reschedule';
 /**
  * 直前(2週間以内)の変更時に生徒が選ぶ対応方法。
  * - request_approval: 事情を説明し、そのまま承認を求める
- * - reschedule_within_two_weeks: 元の日から前後 RESCHEDULE_RANGE_DAYS 日(現在 7 日)以内の別日へ振替を希望する(値の名前は互換のため据え置き)
+ * - reschedule_within_two_weeks: 元の日から前後 Host.rescheduleRangeDays 日(既定 7 日)以内の別日へ振替を希望する(値の名前は互換のため据え置き)
  * - pay_cancellation_fee: キャンセルフィーを支払う
  */
 export type LateChangeOption =

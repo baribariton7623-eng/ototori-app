@@ -7,7 +7,6 @@ import {
   assertWithinBookingWindow,
   validateCandidates,
   isLateChange,
-  isWithinRescheduleRange,
   validateLateChangeRequest,
 } from '../domain/rules.js';
 import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOption, Student } from '../domain/types.js';
@@ -150,6 +149,7 @@ export class BookingService {
       option: input.option,
       message: input.message,
       proposedStartAts: candidates,
+      rescheduleRangeDays: host.rescheduleRangeDays,
     });
     let feeMethod: FeeMethod | null = null;
     if (validated.option === 'pay_cancellation_fee') {
@@ -244,10 +244,8 @@ export class BookingService {
         });
       }
     } else {
+      // 振替期間は申請時点の講師設定で検証済み。承認後に講師が期間を縮めても、受け付けた希望は承認できる
       const proposed = this.pickCandidate(request, chosenStartAt);
-      if (!isWithinRescheduleRange(new Date(booking.startAt), proposed)) {
-        throw new DomainError('validation', '振替先が範囲外です');
-      }
       // 申請後に埋まっていれば slot_unavailable。講師は別の候補を選ぶか却下する
       updated = await this.applyReschedule(host, booking, proposed);
       approvedStartAt = proposed.toISOString();
