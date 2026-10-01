@@ -30,6 +30,12 @@ export interface RepertoireEntry {
   updatedAt: string;
 }
 
+/** 講師画面用: 生徒一覧の1行(曲が0件の生徒も含めて表示するため) */
+export interface StudentSummary {
+  id: string;
+  displayName: string;
+}
+
 /** 講師画面用: 生徒の表示名を結合した登録曲 */
 export interface RepertoireEntryWithStudent extends RepertoireEntry {
   studentName: string;

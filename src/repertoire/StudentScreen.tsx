@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createEntry, deleteEntry, listMyEntries, updateDisplayName, updateEntry, type EntryInput } from './api';
-import EntryCard from './EntryCard';
+import EntryCard, { EntryActions } from './EntryCard';
 import EntryForm from './EntryForm';
 import { displayNameOrFallback, emptyFormValues, formValuesFromEntry, sortByUpdatedDesc } from './logic';
 import type { Profile, RepertoireEntry } from './types';
@@ -121,20 +121,7 @@ export default function StudentScreen({ profile, onProfileChange }: StudentScree
               <EntryCard
                 entry={entry}
                 actions={
-                  <>
-                    <button
-                      onClick={() => setMode({ kind: 'edit', entry })}
-                      className="h-10 rounded-full border border-hairline px-4 text-sm font-medium text-ink-soft transition hover:bg-paper-soft active:scale-95"
-                    >
-                      編集
-                    </button>
-                    <button
-                      onClick={() => handleDelete(entry)}
-                      className="h-10 rounded-full px-4 text-sm font-medium text-red-700 transition hover:bg-red-50 active:scale-95"
-                    >
-                      削除
-                    </button>
-                  </>
+                  <EntryActions onEdit={() => setMode({ kind: 'edit', entry })} onDelete={() => handleDelete(entry)} />
                 }
               />
             </li>

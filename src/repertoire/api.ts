@@ -5,12 +5,20 @@ import type {
   RepertoireEntry,
   RepertoireEntryWithStudent,
   Role,
+  StudentSummary,
 } from './types';
 
 /** 呼び出し側で表示できるよう、失敗はエラーメッセージ文字列で返す */
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const NOT_CONFIGURED = 'Supabaseの環境変数が未設定のため、この機能は利用できません。';
+
+/**
+ * RLS で拒否された update/delete はエラーにならず「0行に作用」で返るため、
+ * 対象行が返らなかった場合はこのメッセージで失敗扱いにする。
+ */
+const NO_ROW_AFFECTED =
+  '対象の曲が見つからないか、操作する権限がありません。画面を再読み込みしてからもう一度お試しください。';
 
 interface EntryRow {
   id: string;
@@ -101,6 +109,20 @@ export async function listAllEntries(): Promise<ApiResult<RepertoireEntryWithStu
   };
 }
 
+/** 講師用。生徒(role = 'student')の一覧。曲が0件の生徒も含む */
+export async function listStudents(): Promise<ApiResult<StudentSummary[]>> {
+  if (!supabase) return { ok: false, error: NOT_CONFIGURED };
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, display_name')
+    .eq('role', 'student');
+  if (error) return { ok: false, error: error.message };
+  return {
+    ok: true,
+    data: data.map((row) => ({ id: row.id as string, displayName: row.display_name as string })),
+  };
+}
+
 export interface EntryInput {
   composer: string;
   title: string;
@@ -137,14 +159,20 @@ export async function updateEntry(entryId: string, input: EntryInput): Promise<A
     .update(toRow(input))
     .eq('id', entryId)
     .select('*')
-    .single();
+    .maybeSingle();
   if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: NO_ROW_AFFECTED };
   return { ok: true, data: toEntry(data as EntryRow) };
 }
 
 export async function deleteEntry(entryId: string): Promise<ApiResult<null>> {
   if (!supabase) return { ok: false, error: NOT_CONFIGURED };
-  const { error } = await supabase.from('repertoire_entries').delete().eq('id', entryId);
+  const { data, error } = await supabase
+    .from('repertoire_entries')
+    .delete()
+    .eq('id', entryId)
+    .select('id');
   if (error) return { ok: false, error: error.message };
+  if (data.length === 0) return { ok: false, error: NO_ROW_AFFECTED };
   return { ok: true, data: null };
 }

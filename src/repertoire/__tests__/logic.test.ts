@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildStudentGroups,
   displayNameOrFallback,
   emptyFormValues,
   filterEntries,
   formatLessonDate,
   formValuesFromEntry,
   groupByStudent,
+  isFilterActive,
   normalizeFormValues,
   sortByComposerAndTitle,
   sortByUpdatedDesc,
@@ -151,6 +153,64 @@ describe('groupByStudent', () => {
     ]);
     expect(groups).toHaveLength(2);
     expect(groups.map((g) => g.userId)).toEqual(['x', 'y']);
+  });
+});
+
+describe('groupByStudent(生徒一覧あり)', () => {
+  it('曲が0件の生徒も空のグループとして含める', () => {
+    const groups = groupByStudent(
+      [entry({ id: '1', userId: 'a', studentName: '佐藤' })],
+      [
+        { id: 'a', displayName: '佐藤' },
+        { id: 'b', displayName: '山田' },
+      ],
+    );
+    expect(groups.map((g) => [g.studentName, g.entries.length])).toEqual([
+      ['佐藤', 1],
+      ['山田', 0],
+    ]);
+  });
+
+  it('生徒一覧にないユーザーの曲もグループとして残す', () => {
+    const groups = groupByStudent([entry({ id: '1', userId: 'x', studentName: '講師' })], []);
+    expect(groups.map((g) => g.userId)).toEqual(['x']);
+  });
+});
+
+describe('buildStudentGroups', () => {
+  const students = [
+    { id: 'a', displayName: '佐藤' },
+    { id: 'b', displayName: '山田' },
+    { id: 'c', displayName: '鈴木' },
+  ];
+  const list = [
+    entry({ id: '1', userId: 'a', studentName: '佐藤', composer: 'バッハ', status: 'finished' }),
+    entry({ id: '2', userId: 'b', studentName: '山田', composer: 'ヘンデル', status: 'practicing' }),
+  ];
+
+  it('絞り込みなしでは曲0件の生徒も含めて全員を返す', () => {
+    const groups = buildStudentGroups(list, students, { query: '', status: 'all' });
+    expect(groups).toHaveLength(3);
+  });
+
+  it('絞り込みありでは一致する曲を持つ生徒だけを返す', () => {
+    const groups = buildStudentGroups(list, students, { query: 'バッハ', status: 'all' });
+    expect(groups.map((g) => g.userId)).toEqual(['a']);
+  });
+
+  it('生徒名で検索すると曲0件の生徒もヒットする', () => {
+    const groups = buildStudentGroups(list, students, { query: '鈴木', status: 'all' });
+    expect(groups.map((g) => [g.userId, g.entries.length])).toEqual([['c', 0]]);
+  });
+
+  it('ステータス指定時は曲0件の生徒を含めない', () => {
+    const groups = buildStudentGroups(list, students, { query: '鈴木', status: 'practicing' });
+    expect(groups).toEqual([]);
+  });
+
+  it('isFilterActive は空白だけの検索語を無視する', () => {
+    expect(isFilterActive({ query: '  ', status: 'all' })).toBe(false);
+    expect(isFilterActive({ query: '', status: 'on_hold' })).toBe(true);
   });
 });
 

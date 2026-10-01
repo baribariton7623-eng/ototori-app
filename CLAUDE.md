@@ -11,7 +11,7 @@ React 19 + Vite 8 + TypeScript 6 + Tailwind 4 + Tone.js 15 + Supabase。Cantata-
 - 内部データ型(`src/types/music.ts`): Work>Movement>Part>NoteOrRest階層、拍数ベース、弱起・タイ・テンポイベント対応
 - MusicXML変換パイプライン(`scripts/musicxml/`): `musicxml-interfaces`は2022年で更新停止のため`fast-xml-parser`+自前ロジックを使用
 - Tone.js再生エンジン(`src/audio/PlaybackEngine.ts`): テンポ変更・小節シーク・A-Bリピート・ミュート/音量
-- レパートリー管理アプリ(`repertoire.html` / `src/repertoire/`): 音取りアプリと同居する別エントリ。生徒が作曲家・作品名等を登録し講師が全件閲覧する。役割は`profiles.role`(Supabase側で手動設定)、権限はRLSで強制(`supabase/migrations/0002_repertoire.sql`)。純粋ロジックは`logic.ts`に分離しテスト対象
+- レパートリー管理アプリ(`repertoire.html` / `src/repertoire/`): 音取りアプリと同居する別エントリ。生徒は自分の曲を、講師は全生徒の曲を閲覧・追加・編集・削除できる。役割は`profiles.role`(Supabase側で手動設定)、権限はRLSで強制(`supabase/migrations/0002_repertoire.sql`、`0003_repertoire_teacher_write.sql`)。純粋ロジックは`logic.ts`に分離しテスト対象
 
 ## 既知の制約
 

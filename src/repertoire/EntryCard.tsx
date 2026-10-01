@@ -15,9 +15,29 @@ export function StatusBadge({ status }: { status: EntryStatus }) {
   );
 }
 
+/** カード右下の編集・削除ボタン(生徒画面・講師画面で共用) */
+export function EntryActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <>
+      <button
+        onClick={onEdit}
+        className="h-10 rounded-full border border-hairline px-4 text-sm font-medium text-ink-soft transition hover:bg-paper-soft active:scale-95"
+      >
+        編集
+      </button>
+      <button
+        onClick={onDelete}
+        className="h-10 rounded-full px-4 text-sm font-medium text-red-700 transition hover:bg-red-50 active:scale-95"
+      >
+        削除
+      </button>
+    </>
+  );
+}
+
 interface EntryCardProps {
   entry: RepertoireEntry;
-  /** 編集・削除ボタンを表示する(生徒画面のみ) */
+  /** カード右下に表示する操作ボタン(通常は EntryActions) */
   actions?: React.ReactNode;
 }
 

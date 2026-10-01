@@ -4,6 +4,7 @@ import {
   type EntryStatus,
   type RepertoireEntry,
   type RepertoireEntryWithStudent,
+  type StudentSummary,
 } from './types';
 
 export const COMPOSER_MAX_LENGTH = 100;
@@ -121,10 +122,16 @@ export interface StudentGroup {
 
 /**
  * 講師画面用: 生徒ごとにまとめ、生徒名順(同名は userId 順)に並べる。
- * 各生徒内は作曲家→作品名順。
+ * 各生徒内は作曲家→作品名順。students を渡すと、曲が0件の生徒も空のグループとして含める。
  */
-export function groupByStudent(entries: readonly RepertoireEntryWithStudent[]): StudentGroup[] {
+export function groupByStudent(
+  entries: readonly RepertoireEntryWithStudent[],
+  students: readonly StudentSummary[] = [],
+): StudentGroup[] {
   const map = new Map<string, StudentGroup>();
+  for (const student of students) {
+    map.set(student.id, { userId: student.id, studentName: student.displayName, entries: [] });
+  }
   for (const entry of entries) {
     let group = map.get(entry.userId);
     if (!group) {
@@ -136,6 +143,30 @@ export function groupByStudent(entries: readonly RepertoireEntryWithStudent[]): 
   return [...map.values()]
     .map((g) => ({ ...g, entries: sortByComposerAndTitle(g.entries) }))
     .sort((a, b) => collator.compare(a.studentName, b.studentName) || a.userId.localeCompare(b.userId));
+}
+
+export function isFilterActive(filter: EntryFilter): boolean {
+  return filter.query.trim() !== '' || filter.status !== 'all';
+}
+
+/**
+ * 講師画面の表示用グループを作る。
+ * - 絞り込みなし: 全生徒(曲0件の生徒も含む)
+ * - 絞り込みあり: 条件に一致する曲を持つ生徒のみ。ただしステータス指定がなく、
+ *   検索語が生徒名に一致する場合は曲0件の生徒も含める(名前で探して曲を追加できるように)
+ */
+export function buildStudentGroups(
+  entries: readonly RepertoireEntryWithStudent[],
+  students: readonly StudentSummary[],
+  filter: EntryFilter,
+): StudentGroup[] {
+  if (!isFilterActive(filter)) return groupByStudent(entries, students);
+  const q = filter.query.trim().toLocaleLowerCase();
+  const matchedStudents =
+    filter.status === 'all' && q
+      ? students.filter((s) => s.displayName.toLocaleLowerCase().includes(q))
+      : [];
+  return groupByStudent(filterEntries(entries, filter), matchedStudents);
 }
 
 /** 表示名が未設定の場合の代替表示 */
