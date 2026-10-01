@@ -31,12 +31,12 @@ export class FakeCalendarClient implements CalendarClient {
     const t = to.getTime();
     for (const id of calendarIds) {
       for (const b of this.busy.get(id) ?? []) {
-        if (new Date(b.endAt).getTime() > f && new Date(b.startAt).getTime() < t) out.push(b);
+        if (new Date(b.endAt).getTime() > f && new Date(b.startAt).getTime() < t) out.push({ startAt: b.startAt, endAt: b.endAt, calendarId: id });
       }
       for (const ev of this.events.values()) {
         if (ev.calendarId !== id) continue;
         if (new Date(ev.endAt).getTime() > f && new Date(ev.startAt).getTime() < t) {
-          out.push({ startAt: ev.startAt, endAt: ev.endAt });
+          out.push({ startAt: ev.startAt, endAt: ev.endAt, calendarId: id });
         }
       }
     }

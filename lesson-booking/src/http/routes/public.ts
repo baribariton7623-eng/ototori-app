@@ -1,15 +1,10 @@
 import express, { type Router } from 'express';
-import { z } from 'zod';
 import { DomainError } from '../../domain/errors.js';
 import type { AppDeps } from '../app.js';
-import { isoDate, param, publicHost, wrap } from '../common.js';
+import { param, publicHost, slotsQuerySchema, wrap } from '../common.js';
 
 // ---------- 公開(ログイン任意) ----------
 
-const slotsQuerySchema = z.object({
-  from: isoDate.optional(),
-  to: isoDate.optional(),
-});
 
 export function publicRoutes(deps: AppDeps): Router {
   const r = express.Router();

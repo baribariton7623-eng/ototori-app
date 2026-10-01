@@ -58,7 +58,10 @@
 - レッスン長が枠に収まらない端は出さない(10:00–11:30 の枠、60 分レッスンなら 10:00 のみ)。
 - 連携カレンダーの busy は Google Calendar `freebusy.query` で複数カレンダーをまとめて取得する。
 - 同じ主催者の確定予約どうしは時間が重ならないことを DB でも保証する(`0011_booking_no_overlap.sql` の排他制約。同時に予約が来た場合も後着は `slot_unavailable`)。
-- 予約時のカレンダーへのイベント作成・振替時の更新は付加機能として扱い、失敗しても予約・振替は成立させる(ログに記録)。振替は DB を先に更新してからカレンダーを合わせる。
+- Google カレンダーへの反映(予約時の作成・振替時の日時変更・キャンセル時の削除)は付加機能として扱い、失敗しても予約・振替・キャンセルは成立させる。いずれも DB を先に更新してからカレンダーを合わせる。
+  - 失敗した予約には `calendarSyncError`(理由)を残し、講師にメールで知らせる(同じ予約で失敗が続いても通知は最初の 1 回だけ。講師の退会時は通知しない)。
+  - 講師の予約一覧に「カレンダー未反映」と表示し、「カレンダーに反映」で再試行できる。毎時の定期実行(`/internal/cron/reminders`)でも、開始から 1 日以内の予約を再試行する。
+- 振替先の判定では、動かす予約自身と、その予約が書き込み先カレンダーに入れた予定を埋まっている時間に数えない(元の時間と重なる 10:00 → 10:30 のような振替ができる)。生徒の振替画面は `GET /bookings/{id}/slots` で同じ判定の候補を出す。
 - 振替で別の月へ動かす場合は、その月の予約数上限(フリープラン)も確認する(`plan_limit`)。
 
 ### 3.3 予約作成
@@ -134,7 +137,7 @@
 
 ### 3.6.1 退会(アカウント削除)
 `DELETE /me`。確認文字列(主催者は URL 名、生徒はメールアドレス)を要求する。
-- 主催者: 今後の予約をすべて休講扱いで取り消して生徒に通知(承認待ち申請は却下扱い、カレンダー削除の失敗は無視)→ 有料契約を即時解約 → Google トークンを失効 → 主催者と関連データを削除。
+- 主催者: 今後の予約をすべて休講扱いで取り消して生徒に通知(承認待ち申請は却下扱い、カレンダー削除の失敗は講師に通知しない)→ 有料契約を即時解約 → Google トークンを失効 → 主催者と関連データを削除。
 - 生徒: 今後の確定予約、または未払いのキャンセルフィーが残っていると拒否(`invalid_state`)。直前キャンセルの承認ルールやフィーの支払いを退会で回避させないため。
 - 最後にログイン基盤(Supabase Auth)のユーザーを削除する。
 - Stripe の請求記録は法令上の保存のため Stripe 側に残る。
@@ -264,6 +267,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | POST | `/bookings` | 予約作成 `{hostId, startAt, note?}` → 201 |
 | GET | `/bookings?since=` | 自分の予約一覧(`requiresApprovalToChange`・変更要求履歴 `changeRequests` 付き)。過去分は既定で 60 日前まで(`since` で変更)、フィー未払いは期間に関係なく含む |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
+| GET | `/bookings/{id}/slots?from&to` | 振替先の候補(この予約自身を埋まっている枠に数えない) |
 | POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAts?, feeMethod?}` → 200 `applied` / 202 `pending_approval`(旧形式の `proposedStartAt` 1 件も受け付ける) |
 | POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
 
@@ -285,6 +289,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/hosts/{hostId}/change-requests?status=pending\|approved\|rejected\|all` | 変更要求一覧(予約・生徒・3 択ラベル付き) |
 | POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?, startAt?}`(振替の承認で希望日時から選んだ振替先) |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-paid` | キャンセルフィー入金確認 |
+| POST | `/hosts/{hostId}/bookings/{id}/calendar-sync` | Google カレンダーへの反映を再試行 |
 | POST | `/hosts/{hostId}/bookings/{id}/cancel` | 休講 `{reason}`(生徒へのメッセージ必須) |
 | POST | `/hosts/{hostId}/bookings/{id}/fee-method` | 未払いキャンセルフィーの支払い方法を変更 `{method}` |
 | GET | `/hosts/{hostId}/connect` | Stripe 連携状況(利用可否・決済可否・金額) |

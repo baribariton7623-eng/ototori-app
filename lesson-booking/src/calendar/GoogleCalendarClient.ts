@@ -100,7 +100,7 @@ export class GoogleCalendarClient implements CalendarClient {
           throw new DomainError('calendar_error', `カレンダー ${id} の予定を取得できません`, entry.errors);
         }
         for (const b of entry?.busy ?? []) {
-          if (b.start && b.end) out.push({ startAt: b.start, endAt: b.end });
+          if (b.start && b.end) out.push({ startAt: b.start, endAt: b.end, calendarId: id });
         }
       }
       return out;

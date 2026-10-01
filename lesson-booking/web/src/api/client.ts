@@ -73,6 +73,14 @@ export const api = {
   createBooking: (hostId: string, startAt: string, note?: string) =>
     request<StudentBooking>('POST', '/bookings', { hostId, startAt, note: note || undefined }),
   myBookings: () => request<StudentBooking[]>('GET', '/bookings'),
+  /** 振替先の候補(この予約自身を埋まっている枠に数えない) */
+  rescheduleSlots: (bookingId: string, from?: Date, to?: Date) => {
+    const q = new URLSearchParams();
+    if (from) q.set('from', from.toISOString());
+    if (to) q.set('to', to.toISOString());
+    const qs = q.toString();
+    return request<{ slots: Slot[]; bookingHorizonDays: number }>('GET', `/bookings/${bookingId}/slots${qs ? `?${qs}` : ''}`);
+  },
   change: (
     id: string,
     input: { kind: ChangeKind; message?: string; option?: LateChangeOption; proposedStartAts?: string[]; feeMethod?: FeeMethod },
@@ -152,6 +160,7 @@ export const api = {
   changeFeeMethod: (hostId: string, bookingId: string, method: FeeMethod) =>
     request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/fee-method`, { method }),
   markFeePaid: (hostId: string, bookingId: string) => request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/fee-paid`),
+  calendarSync: (hostId: string, bookingId: string) => request<HostBooking>('POST', `/hosts/${hostId}/bookings/${bookingId}/calendar-sync`),
   googleStatus: (hostId: string) => request<{ connected: boolean }>('GET', `/hosts/${hostId}/google/status`),
   googleConnectUrl: (hostId: string) => request<{ url: string }>('GET', `/hosts/${hostId}/google/connect`),
   googleDisconnect: (hostId: string) => request<void>('DELETE', `/hosts/${hostId}/google`),

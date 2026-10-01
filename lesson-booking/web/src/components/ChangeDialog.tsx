@@ -77,7 +77,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
     const origin = new Date(booking.startAt);
     const from = late ? addDays(origin, -rangeDays) : undefined;
     const to = late ? addDays(origin, rangeDays) : undefined;
-    const r = await api.slots(booking.hostId, from, to);
+    const r = await api.rescheduleSlots(booking.id, from, to);
     const available = r.slots.filter((s) => s.startAt !== booking.startAt);
     setSlots(available);
     const open = new Set(available.map((s) => s.startAt));
@@ -86,7 +86,7 @@ export function ChangeDialog({ booking, rules, onClose, onDone }: Props) {
       setProposed((cur) => cur.filter((p) => open.has(p)));
       setRemovedNotice(`${gone.map((g) => fmtFull(g)).join('、')} は予約できなくなったため、希望から外しました。`);
     }
-  }, [booking.hostId, booking.startAt, late, rangeDays]);
+  }, [booking.id, booking.startAt, late, rangeDays]);
 
   useEffect(() => {
     if (!needsSlot) return;

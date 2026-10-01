@@ -45,10 +45,17 @@ export function BookingsTab({ host, rules }: { host: Host; rules: Rules }) {
   const now = Date.now();
   const upcoming = list.filter((b) => b.status === 'confirmed' && new Date(b.endAt).getTime() > now);
   const others = list.filter((b) => !upcoming.includes(b)).reverse();
+  const unsynced = list.filter((b) => b.calendarSyncError !== null).length;
+  const retrySync = (b: HostBooking) => api.calendarSync(host.id, b.id).then(load).catch(setError);
 
   return (
     <div className="space-y-3">
       <ErrorBanner error={error} onClose={() => setError(null)} />
+      {unsynced > 0 && (
+        <Notice tone="warn">
+          {unsynced} 件の予約が Google カレンダーに反映されていません。1 時間ごとに自動で再試行します。連携が切れている場合は設定タブの「Google カレンダー連携」から連携し直してください。
+        </Notice>
+      )}
       <h2 className="font-semibold">今後の予約({upcoming.length})</h2>
       {upcoming.length === 0 && <div className="text-sm text-stone-500">予約はありません。</div>}
       {upcoming.map((b) => (
@@ -60,6 +67,7 @@ export function BookingsTab({ host, rules }: { host: Host; rules: Rules }) {
           </div>
           <div className="flex flex-col items-end gap-1">
             <Badge tone="green">確定</Badge>
+            <CalendarSyncStatus booking={b} onRetry={() => retrySync(b)} />
             <button type="button" className="text-xs text-red-700 underline" onClick={() => setCancelTarget(b)}>休講にする</button>
           </div>
         </div>
@@ -104,6 +112,7 @@ export function BookingsTab({ host, rules }: { host: Host; rules: Rules }) {
               </div>
               <div className="flex flex-col items-end gap-1">
                 {b.status === 'cancelled' ? <Badge tone="red">キャンセル</Badge> : <Badge>終了</Badge>}
+                <CalendarSyncStatus booking={b} onRetry={() => retrySync(b)} />
                 {b.cancellationFeeStatus === 'pending' && (
                   <span className="text-xs text-amber-800">
                     フィー{b.cancellationFeeAmount != null ? ` ${yen(b.cancellationFeeAmount)}` : ''} 未払い
@@ -140,6 +149,29 @@ export function BookingsTab({ host, rules }: { host: Host; rules: Rules }) {
           ))}
         </>
       )}
+    </div>
+  );
+}
+
+/** Google カレンダーへの反映に失敗している予約の表示と再試行ボタン */
+function CalendarSyncStatus({ booking, onRetry }: { booking: HostBooking; onRetry: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  if (booking.calendarSyncError === null) return null;
+  return (
+    <div className="flex flex-col items-end gap-0.5 text-right">
+      <Badge tone="amber">{booking.status === 'cancelled' ? 'カレンダーに予定が残っています' : 'カレンダー未反映'}</Badge>
+      <span className="max-w-56 text-xs text-stone-500">{booking.calendarSyncError}</span>
+      <button
+        type="button"
+        className="text-xs text-emerald-800 underline"
+        disabled={busy}
+        onClick={() => {
+          setBusy(true);
+          void onRetry().finally(() => setBusy(false));
+        }}
+      >
+        {busy ? '反映中…' : 'カレンダーに反映'}
+      </button>
     </div>
   );
 }

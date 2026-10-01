@@ -272,6 +272,14 @@ paths:
                     - type: object
                       properties:
                         student: { $ref: '#/components/schemas/StudentSummary' }
+  /hosts/{hostId}/bookings/{id}/calendar-sync:
+    parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
+    post:
+      tags: [host]
+      summary: Google カレンダーへの反映(作成・日時変更・削除)をすぐに再試行する。失敗が続けば calendarSyncError が残ったまま返る
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Booking' } } } }
+        '403': { $ref: '#/components/responses/Error' }
   /hosts/{hostId}/bookings/{id}/fee-paid:
     parameters: [{ $ref: '#/components/parameters/hostId' }, { $ref: '#/components/parameters/id' }]
     post:
@@ -383,6 +391,25 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/StudentBooking' } } } }
         '400': { $ref: '#/components/responses/Error' }
         '409': { $ref: '#/components/responses/Error' }
+  /bookings/{id}/slots:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      tags: [student]
+      summary: 振替先の候補となる空き枠。公開の空き枠と違い、この予約自身(とそのカレンダーの予定)を埋まっている枠に数えない
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slots: { type: array, items: { $ref: '#/components/schemas/Slot' } }
+                  bookingHorizonDays: { type: integer }
+        '403': { $ref: '#/components/responses/Error' }
   /bookings/{id}:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get:
@@ -601,7 +628,7 @@ paths:
     post:
       tags: [public]
       security: []
-      summary: 前日リマインドの実行(外部 cron 用)
+      summary: 前日リマインドの送信と、カレンダーへの反映に失敗した予約の再試行(外部 cron から毎時)
       parameters:
         - { name: x-cron-secret, in: header, required: true, schema: { type: string } }
       responses:
@@ -615,6 +642,11 @@ paths:
                   checked: { type: integer }
                   sent: { type: integer }
                   failed: { type: integer }
+                  calendarSync:
+                    type: object
+                    properties:
+                      checked: { type: integer }
+                      fixed: { type: integer }
         '403': { $ref: '#/components/responses/Error' }
   /orgs/by-slug/{slug}:
     get:
@@ -963,6 +995,7 @@ components:
         cancellationFeeAmount: { type: [integer, 'null'] }
         cancellationFeeMethod: { oneOf: [{ $ref: '#/components/schemas/FeeMethod' }, { type: 'null' }] }
         reminderSentAt: { type: [string, 'null'], format: date-time }
+        calendarSyncError: { type: [string, 'null'], description: Google カレンダーへの反映に失敗した理由。null なら反映済みか反映不要 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     StudentBooking:

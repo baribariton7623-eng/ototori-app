@@ -14,6 +14,12 @@ import { timingSafeEqual } from 'node:crypto';
 
 export const isoDate = z.iso.datetime({ offset: true }).transform((s) => new Date(s));
 
+/** 空き枠一覧の期間(省略時は予約受付ウィンドウ全体) */
+export const slotsQuerySchema = z.object({
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+});
+
 export const slugSchema = z.string().trim().toLowerCase().regex(SLUG_PATTERN, '英小文字・数字・ハイフンで3〜32文字');
 
 export const billingUrlsSchema = z.object({

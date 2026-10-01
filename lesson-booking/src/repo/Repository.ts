@@ -56,6 +56,8 @@ export interface BookingRepository {
   /** 全主催者横断: [from, to) に開始する確定予約のうち、リマインド未送信のもの */
   listDueForReminder(from: Date, to: Date): Promise<Booking[]>;
   listByHost(hostId: string, range?: BookingListRange): Promise<Booking[]>;
+  /** 全主催者横断: カレンダーへの反映に失敗したままの予約(since 以降に開始するもの、開始の早い順) */
+  listCalendarSyncPending(since: Date, limit: number): Promise<Booking[]>;
 }
 
 /** 予約一覧の絞り込み。since 以降に開始する予約と、時期を問わずキャンセルフィー未払いの予約を返す */

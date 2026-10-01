@@ -28,7 +28,12 @@ export interface Notifier {
   feePaid(e: Parties & { booking: Booking }): Promise<void>;
   /** 教室への招待(招待先はまだ登録していない可能性がある) */
   orgInvited(e: { organization: Organization; inviter: Host; email: string }): Promise<void>;
+  /** Google カレンダーへの反映に失敗した(主催者宛。同じ予約では失敗が続いても最初の 1 回だけ) */
+  calendarSyncFailed(e: { host: Host; student: Student | null; booking: Booking; action: CalendarSyncAction; reason: string }): Promise<void>;
 }
+
+/** カレンダーに対して行おうとした操作 */
+export type CalendarSyncAction = 'create' | 'update' | 'delete';
 
 export const noopNotifier: Notifier = {
   async bookingCreated() {},
@@ -40,6 +45,7 @@ export const noopNotifier: Notifier = {
   async feeMethodChanged() {},
   async feePaid() {},
   async orgInvited() {},
+  async calendarSyncFailed() {},
 };
 
 /** 通知の失敗をログに落として握りつぶす */

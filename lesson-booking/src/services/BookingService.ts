@@ -10,7 +10,7 @@ import {
   validateLateChangeRequest,
 } from '../domain/rules.js';
 import type { Booking, ChangeKind, ChangeRequest, FeeMethod, Host, LateChangeOption, Student } from '../shared/types.js';
-import { noopNotifier, safeNotify, type Notifier } from '../notify/Notifier.js';
+import { noopNotifier, safeNotify, type CalendarSyncAction, type Notifier } from '../notify/Notifier.js';
 import type { Clock } from '../repo/InMemoryRepositories.js';
 import type { Repositories } from '../repo/Repository.js';
 import type { AvailabilityService, SlotCheck } from './AvailabilityService.js';
@@ -80,16 +80,11 @@ export class BookingService {
       cancellationFeeAmount: null,
       cancellationFeeMethod: null,
       reminderSentAt: null,
+      calendarSyncError: null,
     });
 
-    // カレンダーへの書き込みは付加機能。失敗しても予約は成立させる(以前は予約が確定したまま
-    // 生徒にはエラーが返り、確認メールも届かず、同じ枠の取り直しもできなかった)
-    try {
-      const eventId = await this.writeCalendarEvent(host, booking, input.student);
-      if (eventId) booking = await this.repos.bookings.update(booking.id, { calendarEventId: eventId });
-    } catch (e) {
-      console.error('[booking] カレンダーへのイベント作成に失敗しました。予約は成立しています', booking.id, e);
-    }
+    // カレンダーへの書き込みは付加機能。失敗しても予約は成立させ、講師に知らせて後で再試行する
+    booking = await this.syncCalendar(host, booking, { student: input.student });
 
     const created = booking;
     await safeNotify(() => this.notifier.bookingCreated({ host, student: input.student, booking: created }));
@@ -365,12 +360,12 @@ export class BookingService {
         requestId: pending.id,
       });
     }
-    return this.cancelByHostUnchecked(booking, trimmed, { bestEffortCalendar: false });
+    return this.cancelByHostUnchecked(booking, trimmed, { notifyCalendarFailure: true });
   }
 
   /**
    * 退会処理などで、主催者の今後の予約をすべて取り消す。
-   * 承認待ちの要求は却下扱いにし、カレンダー削除の失敗は無視する(連携が既に切れている場合がある)。
+   * 承認待ちの要求は却下扱いにする。退会する講師にカレンダー削除の失敗を知らせても意味がないので通知しない。
    */
   async cancelAllFutureByHost(hostId: string, reason: string): Promise<Booking[]> {
     const now = this.clock.now();
@@ -387,12 +382,12 @@ export class BookingService {
           decidedAt: now.toISOString(),
         });
       }
-      out.push(await this.cancelByHostUnchecked(b, reason, { bestEffortCalendar: true }));
+      out.push(await this.cancelByHostUnchecked(b, reason, { notifyCalendarFailure: false }));
     }
     return out;
   }
 
-  private async cancelByHostUnchecked(booking: Booking, reason: string, opts: { bestEffortCalendar: boolean }): Promise<Booking> {
+  private async cancelByHostUnchecked(booking: Booking, reason: string, opts: { notifyCalendarFailure: boolean }): Promise<Booking> {
     const host = await this.availability.getHost(booking.hostId);
     const updated = await this.applyCancel(host, booking, 'none', opts);
     const student = await this.repos.students.findById(booking.studentId);
@@ -404,26 +399,15 @@ export class BookingService {
 
   // ---------- 内部 ----------
 
+  /** 予約を取り消す。DB を先に更新し、カレンダーの予定の削除は失敗しても続行する(講師に知らせて後で再試行) */
   private async applyCancel(
     host: Host,
     booking: Booking,
     fee: Booking['cancellationFeeStatus'],
-    opts: { bestEffortCalendar: boolean } = { bestEffortCalendar: false },
+    opts: { notifyCalendarFailure: boolean } = { notifyCalendarFailure: true },
   ): Promise<Booking> {
-    const target = await this.writeTargetCalendar(host.id);
-    if (booking.calendarEventId && target) {
-      try {
-        await this.calendar.deleteEvent(host.id, target, booking.calendarEventId);
-      } catch (e) {
-        if (!opts.bestEffortCalendar) throw e;
-        console.warn('[booking] カレンダーイベントの削除に失敗しましたが処理を続行します', e);
-      }
-    }
-    return this.repos.bookings.update(booking.id, {
-      status: 'cancelled',
-      calendarEventId: null,
-      cancellationFeeStatus: fee,
-    });
+    const cancelled = await this.repos.bookings.update(booking.id, { status: 'cancelled', cancellationFeeStatus: fee });
+    return this.syncCalendar(host, cancelled, { notify: opts.notifyCalendarFailure });
   }
 
   /**
@@ -447,19 +431,7 @@ export class BookingService {
       // 新しい日時について改めて前日リマインドを送る
       reminderSentAt: null,
     });
-    const target = await this.writeTargetCalendar(host.id);
-    if (booking.calendarEventId && target) {
-      try {
-        await this.calendar.updateEvent(host.id, target, booking.calendarEventId, {
-          startAt: newStart.toISOString(),
-          endAt: newEnd.toISOString(),
-          timezone: host.timezone,
-        });
-      } catch (e) {
-        console.error('[booking] カレンダーのイベント更新に失敗しました。予約の日時は変更済みです', booking.id, e);
-      }
-    }
-    return updated;
+    return this.syncCalendar(host, updated);
   }
 
   /** フリープランの月間予約上限(レッスン日の暦月で数える) */
@@ -476,22 +448,85 @@ export class BookingService {
     }
   }
 
-  private async writeCalendarEvent(host: Host, booking: Booking, student: Student): Promise<string | null> {
-    if (!limitsFor(host).calendarWrite) return null;
+  /**
+   * Google カレンダーを予約の状態に合わせる(作成・日時変更・削除)。予約の確定・取り消し・振替のあとと、再試行で呼ぶ。
+   * - 確定・イベントなし → プロプランで書き込み先があれば作成
+   * - 確定・イベントあり → 日時を合わせる
+   * - 取り消し・イベントあり → 削除
+   * 失敗しても例外にせず calendarSyncError に理由を残す。失敗に変わったときだけ講師に通知する
+   */
+  private async syncCalendar(
+    host: Host,
+    booking: Booking,
+    opts: { student?: Student | undefined; notify?: boolean } = {},
+  ): Promise<Booking> {
     const target = await this.writeTargetCalendar(host.id);
-    if (!target) return null;
-    const { eventId } = await this.calendar.createEvent(host.id, {
-      calendarId: target,
-      summary: `レッスン: ${student.name || student.email}`,
-      description: [`予約ID: ${booking.id}`, `生徒: ${student.name} <${student.email}>`, booking.note ? `備考: ${booking.note}` : '']
-        .filter(Boolean)
-        .join('\n'),
-      startAt: booking.startAt,
-      endAt: booking.endAt,
-      timezone: host.timezone,
-      attendeeEmail: student.email,
-    });
-    return eventId;
+    let action: CalendarSyncAction | null = null;
+    try {
+      if (booking.status === 'confirmed' && !booking.calendarEventId) {
+        if (target && limitsFor(host).calendarWrite) {
+          action = 'create';
+          const student = opts.student ?? (await this.repos.students.findById(booking.studentId));
+          const { eventId } = await this.calendar.createEvent(host.id, {
+            calendarId: target,
+            summary: `レッスン: ${student ? student.name || student.email : '生徒'}`,
+            description: [`予約ID: ${booking.id}`, student ? `生徒: ${student.name} <${student.email}>` : '', booking.note ? `備考: ${booking.note}` : '']
+              .filter(Boolean)
+              .join('\n'),
+            startAt: booking.startAt,
+            endAt: booking.endAt,
+            timezone: host.timezone,
+            ...(student ? { attendeeEmail: student.email } : {}),
+          });
+          return this.repos.bookings.update(booking.id, { calendarEventId: eventId, calendarSyncError: null });
+        }
+      } else if (booking.status === 'confirmed' && booking.calendarEventId && target) {
+        action = 'update';
+        await this.calendar.updateEvent(host.id, target, booking.calendarEventId, {
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          timezone: host.timezone,
+        });
+      } else if (booking.status === 'cancelled' && booking.calendarEventId) {
+        action = 'delete';
+        // 書き込み先が外された場合は消しようがないので、記録だけ外す
+        if (target) await this.calendar.deleteEvent(host.id, target, booking.calendarEventId);
+        return this.repos.bookings.update(booking.id, { calendarEventId: null, calendarSyncError: null });
+      }
+      return booking.calendarSyncError === null ? booking : this.repos.bookings.update(booking.id, { calendarSyncError: null });
+    } catch (e) {
+      const reason = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      console.error('[calendar] カレンダーへの反映に失敗しました', booking.id, action, e);
+      const failed = await this.repos.bookings.update(booking.id, { calendarSyncError: reason });
+      if (booking.calendarSyncError === null && action && opts.notify !== false) {
+        const student = opts.student ?? (await this.repos.students.findById(booking.studentId));
+        await safeNotify(() => this.notifier.calendarSyncFailed({ host, student, booking: failed, action: action as CalendarSyncAction, reason }));
+      }
+      return failed;
+    }
+  }
+
+  /** 講師の操作: カレンダーへの反映をすぐに再試行する */
+  async retryCalendarSync(bookingId: string, hostId: string): Promise<Booking> {
+    const booking = await this.getBookingForHost(bookingId, hostId);
+    const host = await this.availability.getHost(hostId);
+    return this.syncCalendar(host, booking);
+  }
+
+  /**
+   * 定期実行: カレンダーへの反映に失敗したままの予約を再試行する。開始から 1 日以上たった予約は対象外。
+   * 失敗が続いても通知は最初の 1 回だけ(syncCalendar が失敗への変化でだけ通知する)
+   */
+  async retryPendingCalendarSyncs(limit = 100): Promise<{ checked: number; fixed: number }> {
+    const since = new Date(this.clock.now().getTime() - 86_400_000);
+    const pending = await this.repos.bookings.listCalendarSyncPending(since, limit);
+    let fixed = 0;
+    for (const b of pending) {
+      const host = await this.repos.hosts.findById(b.hostId);
+      if (!host) continue;
+      if ((await this.syncCalendar(host, b)).calendarSyncError === null) fixed++;
+    }
+    return { checked: pending.length, fixed };
   }
 
   private async writeTargetCalendar(hostId: string): Promise<string | null> {

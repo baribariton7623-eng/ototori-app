@@ -212,6 +212,7 @@ export function insertBooking(w: TestWorld, startAt: Date, overrides: Partial<Om
     cancellationFeeAmount: null,
     cancellationFeeMethod: null,
     reminderSentAt: null,
+    calendarSyncError: null,
     ...overrides,
   });
 }

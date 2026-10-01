@@ -62,6 +62,7 @@ describe.runIf(process.env.TEST_REPOS === 'supabase')('Supabase 実装(実 DB)',
       cancellationFeeAmount: null,
       cancellationFeeMethod: null,
       reminderSentAt: null,
+      calendarSyncError: null,
     };
     const results = await Promise.allSettled([
       repos.bookings.create({ ...base, studentId: s1.id }),
@@ -92,6 +93,7 @@ describe.runIf(process.env.TEST_REPOS === 'supabase')('Supabase 実装(実 DB)',
       cancellationFeeAmount: null,
       cancellationFeeMethod: null,
       reminderSentAt: null,
+      calendarSyncError: null,
     });
     const req = {
       bookingId: b.id,
@@ -144,6 +146,7 @@ describe.runIf(process.env.TEST_REPOS === 'supabase')('Supabase 実装(実 DB)',
       cancellationFeeAmount: null,
       cancellationFeeMethod: null,
       reminderSentAt: null,
+      calendarSyncError: null,
     });
     await repos.hosts.delete(host.id);
     expect(await repos.hosts.findById(host.id)).toBeNull();

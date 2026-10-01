@@ -2,6 +2,7 @@ import { canCollectFeeOnline } from '../domain/plans.js';
 import { FEE_METHOD_LABELS, daysLabel, lateChangeOptionLabel, yen } from '../domain/rules.js';
 import type { Booking, ChangeRequest, Host, Organization, Student } from '../shared/types.js';
 import type { EmailMessage } from './EmailSender.js';
+import type { CalendarSyncAction } from './Notifier.js';
 
 /**
  * 通知メールの文面。純関数なのでテストしやすい。
@@ -199,6 +200,37 @@ export function lessonReminderMails(ctx: TemplateContext, host: Host, student: S
         (host.lateChangeThresholdDays > 0
           ? `\n※開始${daysLabel(host.lateChangeThresholdDays)}前を過ぎているため、キャンセル・変更には講師の承認が必要です。`
           : '') +
+        footer(ctx),
+    },
+  ];
+}
+
+const CALENDAR_ACTION_TEXT: Record<CalendarSyncAction, { subject: string; body: string }> = {
+  create: { subject: '予約をカレンダーに登録できませんでした', body: '次の予約を Google カレンダーに登録できませんでした。予約自体は成立しています。' },
+  update: { subject: '振替後の日時をカレンダーに反映できませんでした', body: '次の予約の日時変更を Google カレンダーに反映できませんでした。カレンダーには変更前の日時が残っています。' },
+  delete: { subject: 'キャンセルした予約をカレンダーから削除できませんでした', body: '次の予約はキャンセル済みですが、Google カレンダーから予定を削除できませんでした。カレンダーに予定が残っています。' },
+};
+
+/** カレンダーへの反映失敗(主催者宛) */
+export function calendarSyncFailedMails(
+  ctx: TemplateContext,
+  host: Host,
+  student: Student | null,
+  booking: Booking,
+  action: CalendarSyncAction,
+  reason: string,
+): EmailMessage[] {
+  const tz = host.timezone;
+  const t = CALENDAR_ACTION_TEXT[action];
+  return [
+    {
+      to: host.email,
+      subject: `【カレンダー未反映】${t.subject}`,
+      text:
+        `${host.displayName} さん\n\n${t.body}\n\n` +
+        `生徒: ${student ? `${student.name || '(名前未設定)'} <${student.email}>` : '(退会済み)'}\n日時: ${range(booking, tz)}\n理由: ${reason}\n\n` +
+        '1 時間ごとに自動で再試行します。Google との連携が切れている場合は、設定画面の「Google カレンダー連携」から連携し直してください。' +
+        `予約一覧の「カレンダーに反映」からすぐに再試行することもできます。\n\n予約一覧: ${links(ctx).host}` +
         footer(ctx),
     },
   ];

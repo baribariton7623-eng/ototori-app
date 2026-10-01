@@ -94,12 +94,14 @@ export function createApp(deps: AppDeps): express.Express {
 
   app.use(express.json({ limit: '100kb' }));
 
-  // 定期実行(外部 cron から叩く)。ユーザー認証ではなく共有シークレットで保護する
+  // 定期実行(外部 cron から毎時叩く)。前日リマインドの送信と、カレンダーへの反映に失敗した予約の再試行。
+  // ユーザー認証ではなく共有シークレットで保護する
   app.post('/internal/cron/reminders', wrap(async (req, res) => {
     if (!deps.cronSecret || !safeEqual(header(req, 'x-cron-secret') ?? '', deps.cronSecret)) {
       throw new DomainError('forbidden', 'cron シークレットが一致しません');
     }
-    res.json(await deps.reminders.runOnce());
+    const reminders = await deps.reminders.runOnce();
+    res.json({ ...reminders, calendarSync: await deps.bookings.retryPendingCalendarSyncs() });
   }));
 
   app.use(authMiddleware(deps.repos, deps.auth));

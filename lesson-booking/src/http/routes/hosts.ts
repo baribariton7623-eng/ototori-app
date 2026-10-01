@@ -225,6 +225,12 @@ export function hostRoutes(deps: AppDeps): Router {
     res.json(await deps.bookings.decideRequest(param(req, 'id'), host.id, body.decision, body.note, body.startAt));
   }));
 
+  // Google カレンダーへの反映をすぐに再試行する(失敗が続けば calendarSyncError が残ったまま返る)
+  r.post('/hosts/:hostId/bookings/:id/calendar-sync', wrap(async (req, res) => {
+    const host = requireHost(req, param(req, 'hostId'));
+    res.json(await deps.bookings.retryCalendarSync(param(req, 'id'), host.id));
+  }));
+
   r.post('/hosts/:hostId/bookings/:id/fee-paid', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     res.json(await deps.bookings.markFeePaid(param(req, 'id'), host.id));

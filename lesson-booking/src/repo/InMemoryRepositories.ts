@@ -224,6 +224,14 @@ export function createInMemoryRepositories(clock: Clock = systemClock): Reposito
         .filter((b) => b.hostId === hostId && inRange(b, range))
         .sort((a, b) => a.startAt.localeCompare(b.startAt));
     },
+    async listCalendarSyncPending(since, limit) {
+      const s = since.toISOString();
+      return bookings
+        .all()
+        .filter((b) => b.calendarSyncError !== null && b.startAt >= s)
+        .sort((a, b) => a.startAt.localeCompare(b.startAt))
+        .slice(0, limit);
+    },
   };
 
   const changeRepo: ChangeRequestRepository = {

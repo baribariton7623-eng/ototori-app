@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { FEE_METHODS, LATE_CHANGE_OPTIONS } from '../../domain/rules.js';
 import { requireStudent } from '../auth.js';
 import type { AppDeps } from '../app.js';
-import { decorate, feeInfo, isoDate, listSince, param, wrap } from '../common.js';
+import { decorate, feeInfo, isoDate, listSince, param, slotsQuerySchema, wrap } from '../common.js';
 
 // ---------- 生徒用 ----------
 
@@ -51,6 +51,16 @@ export function studentRoutes(deps: AppDeps): Router {
         return { ...decorate(b, now, host), ...feeInfo(b, host), changeRequests: requests.filter((r) => r.bookingId === b.id) };
       }),
     );
+  }));
+
+  // 振替先の候補。公開の空き枠と違い、この予約自身(とそのカレンダーの予定)を埋まっている枠に数えない
+  r.get('/bookings/:id/slots', wrap(async (req, res) => {
+    const student = await requireStudent(req, deps.repos);
+    const booking = await deps.bookings.getBookingForStudent(param(req, 'id'), student);
+    const q = slotsQuerySchema.parse(req.query);
+    const slots = await deps.availability.listSlots(booking.hostId, { ...q, excludeBookingId: booking.id });
+    const host = await deps.availability.getHost(booking.hostId);
+    res.json({ slots, bookingHorizonDays: host.bookingHorizonDays });
   }));
 
   r.get('/bookings/:id', wrap(async (req, res) => {

@@ -131,6 +131,7 @@ const bookingFromRow = (r: Row): Booking => ({
   reminderSentAt: isoOrNull(r.reminder_sent_at),
   cancellationFeeAmount: (r.cancellation_fee_amount as number | null) ?? null,
   cancellationFeeMethod: (r.cancellation_fee_method as Booking['cancellationFeeMethod']) ?? null,
+  calendarSyncError: (r.calendar_sync_error as string | null) ?? null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -146,6 +147,7 @@ const bookingToRow = (b: Partial<Booking>): Row => strip({
   reminder_sent_at: b.reminderSentAt,
   cancellation_fee_amount: b.cancellationFeeAmount,
   cancellation_fee_method: b.cancellationFeeMethod,
+  calendar_sync_error: b.calendarSyncError,
   updated_at: b.updatedAt,
 });
 
@@ -376,6 +378,10 @@ function buildRepositories(sb: SupabaseClient): Repositories {
       async listByHost(hostId, range) {
         const q = withRange(sb.from('lb_bookings').select().eq('host_id', hostId), range);
         return must(await q.order('start_at').returns<Row[]>(), '予約一覧').map(bookingFromRow);
+      },
+      async listCalendarSyncPending(since, limit) {
+        const q = sb.from('lb_bookings').select().not('calendar_sync_error', 'is', null).gte('start_at', since.toISOString());
+        return must(await q.order('start_at').limit(limit).returns<Row[]>(), 'カレンダー未反映の予約').map(bookingFromRow);
       },
     },
     changeRequests: {
