@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '../api/client';
-import type { Host, MyInvitation, MyOrganization } from '../api/types';
-import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../components/ui';
-import { operator } from '../legal/operator';
+import { api } from '../../api/client';
+import type { Host, MyInvitation, MyOrganization } from '../../api/types';
+import { Badge, ErrorBanner, Modal, Notice, Spinner } from '../../components/ui';
+import { operator } from '../../legal/operator';
 
 const STATUS_JA = { none: '未契約', active: '契約中', past_due: '支払い遅延', canceled: '解約済み' } as const;
 
