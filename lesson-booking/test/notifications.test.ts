@@ -115,7 +115,7 @@ describe('講師による休講', () => {
     await expect(w.bookings.cancelByHost(b.id, w.host.id, '休講')).rejects.toMatchObject({ code: 'change_request_pending' });
 
     const { id: _id, createdAt: _c, ...hostFields } = w.host;
-    const other = await w.repos.hosts.create({ ...hostFields, email: 'x@example.com', slug: 'xx' });
+    const other = await w.repos.hosts.create({ ...hostFields, email: 'x@example.com', slug: 'other-host' });
     expect(other.id).not.toBe(w.host.id);
     await expect(w.bookings.cancelByHost(b.id, other.id, '休講')).rejects.toMatchObject({ code: 'forbidden' });
   });

@@ -34,7 +34,7 @@ export function SlotPicker({ slots, selected, onSelect, emptyText = 'この期�
         const wd = WEEKDAY_JA[d.getDay()];
         const [, m, day] = key.split('-');
         return (
-          <div key={key}>
+          <div key={key} data-testid="slot-day" data-date={key}>
             <div className={`text-xs font-medium mb-1 ${wd === '日' ? 'text-red-600' : wd === '土' ? 'text-sky-700' : 'text-stone-600'}`}>
               {Number(m)}/{Number(day)} ({wd})
             </div>
@@ -47,6 +47,7 @@ export function SlotPicker({ slots, selected, onSelect, emptyText = 'この期�
                     key={s.startAt}
                     type="button"
                     aria-pressed={active}
+                    data-start={s.startAt}
                     onClick={() => onSelect(s.startAt)}
                     className={`relative rounded-md border px-2.5 py-1 text-sm ${
                       active ? 'bg-emerald-700 border-emerald-700 text-white' : 'bg-white border-stone-300 hover:bg-emerald-50'

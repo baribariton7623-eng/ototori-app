@@ -13,7 +13,10 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:db": "vitest run --config vitest.db.config.ts",
+    "build:all": "npm run build && npm --prefix web run build",
+    "test:e2e": "npm run build:all && playwright test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
@@ -24,8 +27,11 @@
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/express": "^5.0.3",
     "@types/node": "^22.19.0",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

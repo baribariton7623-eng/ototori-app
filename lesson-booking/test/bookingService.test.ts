@@ -224,7 +224,7 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
     const otherHost = await w.repos.hosts.create({
       email: 'h2@example.com',
       displayName: 'B',
-      slug: 'b',
+      slug: 'host-b',
       bio: '',
       plan: 'free',
       subscriptionStatus: 'none',

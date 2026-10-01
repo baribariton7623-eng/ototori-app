@@ -67,6 +67,16 @@ npm run dev               # http://localhost:5174 → API は 8787 へプロキ�
 - 「何日先まで予約できるか(既定 40 日)」「開始の何日前から承認制にするか(既定 14 日)」「振替を受け付ける期間(既定 前後 7 日)」は、講師が設定画面の「予約・キャンセルのルール」で変更できる
 - 開始まで 14 日未満の予約は「変更は承認制」バッジが付き、キャンセル・変更ダイアログでメッセージと 3 択が必須になる
 
+## テスト
+
+| コマンド | 内容 | 必要なもの |
+| --- | --- | --- |
+| `npm test` | 単体・API テスト(インメモリ) | なし |
+| `npm run test:db` | 同じテストスイートを、実 PostgreSQL + PostgREST 上の Supabase 実装で実行。マイグレーション 0001〜 の適用も確認 | PostgreSQL(既定 `postgres://postgres:postgres@127.0.0.1:5432/postgres`、`TEST_DATABASE_ADMIN_URL` で変更)。PostgREST は Linux x64 なら自動で取得(他は `POSTGREST_BIN`) |
+| `npm run test:e2e` | ブラウザでの通しテスト(Playwright、`e2e/`)。サーバーとブラウザの時計を 2026-10-01 09:00 JST に固定 | 初回のみ `npx playwright install chromium` |
+
+CI(`.github/workflows/lesson-booking.yml`)は `lesson-booking/` に変更があると、上の 3 つを GitHub Actions で実行する。
+
 ## スクリプト
 
 - `npm run dev` — 開発サーバー(ファイル変更で再起動)
@@ -133,7 +143,22 @@ curl -X POST -H "x-cron-secret: $CRON_SECRET" https://<api-host>/internal/cron/r
 講師が 100 人を超える前に審査を通す必要がある。手順と文案は [docs/google-oauth-verification.md](./docs/google-oauth-verification.md)。
 
 ### 7. デプロイ
-`npm run build` 後 `node dist/server.js`。常駐 Node が動く環境(Render / Fly.io / Railway / Cloud Run など)を想定。ポートは `PORT`。
+API と画面を 1 つのコンテナで配信する `Dockerfile` がある。画面に埋め込む `VITE_*` はビルド時に `--build-arg` で渡す。
+
+```bash
+docker build -t lesson-booking --build-arg VITE_SUPABASE_URL=... --build-arg VITE_SUPABASE_ANON_KEY=... --build-arg VITE_OPERATOR_NAME=... .
+docker run -p 8787:8787 --env-file .env lesson-booking
+```
+
+Render を使う場合は `render.yaml`(ブループリント)を読み込むと、Web サービスと前日リマインド用の cron(毎時)が作られる。秘密情報は Render の画面で入力する。
+
+**本番の安全装置**: `NODE_ENV=production`(Docker イメージの既定)では、開発用の設定(`AUTH_MODE=dev` / `STORAGE=memory` / `BILLING=fake` / `FAKE_NOW` / http の `APP_BASE_URL`)のままだと起動を拒否する。カレンダー・メール・リマインドが動かない設定は警告をログに出す。
+
+### 8. 単独リポジトリへの移動
+`lesson-booking/` は単独で動く構成になっている。移すときは:
+1. `lesson-booking/` の中身を新しいリポジトリの直下に置く
+2. `.github/workflows/lesson-booking.yml`(ototori-app の直下にある)を新リポジトリの `.github/workflows/` に移し、`paths`・`working-directory`・`cache-dependency-path` の `lesson-booking/` を外す
+3. `render.yaml` の `rootDir: lesson-booking` を外す
 
 ## ディレクトリ
 

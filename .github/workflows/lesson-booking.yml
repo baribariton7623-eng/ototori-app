@@ -1,0 +1,85 @@
+# レッスン予約サービス(lesson-booking/)の CI。
+# 単独リポジトリへ移すときは、このファイルを移し先の .github/workflows/ に置き、
+# paths と defaults.run.working-directory、cache-dependency-path の "lesson-booking/" を外す。
+name: lesson-booking
+
+on:
+  push:
+    paths: ['lesson-booking/**', '.github/workflows/lesson-booking.yml']
+  pull_request:
+    paths: ['lesson-booking/**', '.github/workflows/lesson-booking.yml']
+
+defaults:
+  run:
+    working-directory: lesson-booking
+
+jobs:
+  unit:
+    name: 型チェック・単体テスト・ビルド
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            lesson-booking/package-lock.json
+            lesson-booking/web/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: lesson-booking/web
+      - run: npm run typecheck
+      - run: npm run typecheck
+        working-directory: lesson-booking/web
+      - run: npm test
+      - run: npm run build:all
+
+  db:
+    name: 実 PostgreSQL + PostgREST でのテスト
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lesson-booking/package-lock.json
+      - run: npm ci
+      - run: npm run test:db
+
+  e2e:
+    name: ブラウザでの通しテスト(Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            lesson-booking/package-lock.json
+            lesson-booking/web/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: lesson-booking/web
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            lesson-booking/playwright-report
+            lesson-booking/test-results
+          retention-days: 7

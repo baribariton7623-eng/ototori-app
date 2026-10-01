@@ -1,0 +1,63 @@
+# Render(https://render.com)のブループリント。リポジトリを接続すると以下が作られる。
+# 値が sync: false の項目は、Render の画面で入力する(秘密情報をリポジトリに置かないため)。
+# 単独リポジトリへ移したら rootDir を外す。
+services:
+  - type: web
+    name: lesson-booking
+    runtime: docker
+    rootDir: lesson-booking
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: AUTH_MODE, value: supabase }
+      - { key: STORAGE, value: supabase }
+      - { key: CALENDAR, value: google }
+      - { key: BILLING, value: stripe }
+      - { key: MAIL, value: resend }
+      - { key: TIMEZONE, value: Asia/Tokyo }
+      - { key: APP_BASE_URL, sync: false }          # 例: https://lessons.example.jp
+      - { key: SERVICE_NAME, sync: false }
+      - { key: SUPABASE_URL, sync: false }
+      - { key: SUPABASE_SERVICE_ROLE_KEY, sync: false }
+      - { key: SUPABASE_JWT_SECRET, sync: false }
+      - { key: GOOGLE_CLIENT_ID, sync: false }
+      - { key: GOOGLE_CLIENT_SECRET, sync: false }
+      - { key: GOOGLE_REDIRECT_URI, sync: false }   # 例: https://lessons.example.jp/google/callback
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: MAIL_FROM, sync: false }
+      - { key: STRIPE_SECRET_KEY, sync: false }
+      - { key: STRIPE_WEBHOOK_SECRET, sync: false }
+      - { key: STRIPE_CONNECT_WEBHOOK_SECRET, sync: false }
+      - { key: STRIPE_PRICE_ID_PRO, sync: false }
+      - { key: STRIPE_PRICE_ID_ORG_SEAT, sync: false }
+      - { key: CRON_SECRET, generateValue: true }
+      # 画面に埋め込む値(Docker のビルド時に使われる)
+      - { key: VITE_AUTH_MODE, value: supabase }
+      - { key: VITE_SUPABASE_URL, sync: false }
+      - { key: VITE_SUPABASE_ANON_KEY, sync: false }
+      - { key: VITE_OPERATOR_NAME, sync: false }
+      - { key: VITE_OPERATOR_REPRESENTATIVE, sync: false }
+      - { key: VITE_OPERATOR_ADDRESS, sync: false }
+      - { key: VITE_OPERATOR_PHONE, sync: false }
+      - { key: VITE_OPERATOR_EMAIL, sync: false }
+      - { key: VITE_PRO_PRICE, sync: false }
+      - { key: VITE_ORG_SEAT_PRICE, sync: false }
+      - { key: VITE_LEGAL_EFFECTIVE_DATE, sync: false }
+
+  # 前日リマインド: 毎時、API の定期実行エンドポイントを叩く
+  - type: cron
+    name: lesson-booking-reminders
+    runtime: docker
+    rootDir: lesson-booking
+    dockerfilePath: ./Dockerfile
+    schedule: '5 * * * *'
+    dockerCommand: >-
+      node -e "fetch(process.env.APP_BASE_URL + '/internal/cron/reminders', { method: 'POST', headers: { 'x-cron-secret': process.env.CRON_SECRET } })
+      .then(async (r) => { console.log(r.status, await r.text()); process.exit(r.ok ? 0 : 1); })
+      .catch((e) => { console.error(e); process.exit(1); })"
+    envVars:
+      - { key: APP_BASE_URL, sync: false }
+      - key: CRON_SECRET
+        fromService: { type: web, name: lesson-booking, envVarKey: CRON_SECRET }

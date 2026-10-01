@@ -1,4 +1,7 @@
+import pg from 'pg';
+import { inject } from 'vitest';
 import { FakeBillingProvider } from '../src/billing/FakeBillingProvider.js';
+import { createSupabaseRepositories } from '../src/repo/SupabaseRepositories.js';
 import { FakeFeePaymentProvider } from '../src/billing/FakeFeePaymentProvider.js';
 import { FeeService } from '../src/services/FeeService.js';
 import { OrganizationService } from '../src/services/OrganizationService.js';
@@ -48,7 +51,7 @@ export interface TestWorld {
 /** 主催者(平日10:00-18:00 JST, 60分レッスン, 60分リード)と生徒を用意する */
 export async function setupWorld(): Promise<TestWorld> {
   const clock = new FixedClock();
-  const repos = createInMemoryRepositories(clock);
+  const repos = await createRepositories(clock);
   const calendar = new FakeCalendarClient();
   const availability = new AvailabilityService(repos, calendar, clock);
   const mail = new MemoryEmailSender();
@@ -110,4 +113,30 @@ export async function setupWorld(): Promise<TestWorld> {
 /** JST のローカル日時を UTC Date に */
 export function jst(dateTime: string): Date {
   return new Date(`${dateTime}+09:00`);
+}
+
+/** 全テーブル(npm run test:db で実 DB を使うとき、各テストの前に空にする) */
+const TABLES = [
+  'lb_org_invitations',
+  'lb_change_requests',
+  'lb_bookings',
+  'lb_availability_windows',
+  'lb_host_calendars',
+  'lb_host_google_credentials',
+  'lb_students',
+  'lb_organizations',
+  'lb_hosts',
+];
+
+/**
+ * 既定はインメモリ。TEST_REPOS=supabase(vitest.db.config.ts)なら実 PostgreSQL + PostgREST 上の Supabase 実装を使う
+ */
+export async function createRepositories(clock: Clock): Promise<Repositories> {
+  if (process.env.TEST_REPOS !== 'supabase') return createInMemoryRepositories(clock);
+  const db = new pg.Client({ connectionString: inject('databaseUrl') });
+  await db.connect();
+  // lb_organizations.owner_host_id → lb_hosts、lb_hosts.organization_id → lb_organizations の相互参照があるので cascade
+  await db.query(`truncate ${TABLES.join(', ')} cascade`);
+  await db.end();
+  return createSupabaseRepositories(inject('supabaseUrl'), inject('supabaseServiceKey'));
 }
