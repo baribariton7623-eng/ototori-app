@@ -8,8 +8,13 @@ export const BOOKING_HORIZON_DAYS = 40;
 /** レッスン開始までこの日数未満のキャンセル・変更は主催者承認が必要 */
 export const LATE_CHANGE_THRESHOLD_DAYS = 14;
 
-/** 振替先は元のレッスン日からこの日数以内 */
-export const RESCHEDULE_RANGE_DAYS = 14;
+/** 振替先は元のレッスン日から前後この日数以内 */
+export const RESCHEDULE_RANGE_DAYS = 7;
+
+/** 日数を「1週間」「10日」のような表示にする */
+export function daysLabel(days: number): string {
+  return days % 7 === 0 ? `${days / 7}週間` : `${days}日`;
+}
 
 /** 振替申請で出せる希望日時の数(第1〜第3希望) */
 export const MAX_RESCHEDULE_CANDIDATES = 3;
@@ -22,7 +27,8 @@ export const LATE_CHANGE_OPTIONS: readonly LateChangeOption[] = [
 
 export const LATE_CHANGE_OPTION_LABELS: Record<LateChangeOption, string> = {
   request_approval: '事情を説明して承認を求める',
-  reschedule_within_two_weeks: '2週間以内の別日に振替を希望する',
+  // 値(reschedule_within_two_weeks)は保存済みデータと互換のため据え置き。表示は範囲の定数から作る
+  reschedule_within_two_weeks: `${daysLabel(RESCHEDULE_RANGE_DAYS)}以内の別日に振替を希望する`,
   pay_cancellation_fee: 'キャンセルフィーを支払う',
 };
 
@@ -81,7 +87,7 @@ export interface LateChangeInput {
  * - メッセージ必須
  * - 対応方法(3択)必須
  * - 振替(kind=reschedule / option=reschedule_within_two_weeks)は希望日時が 1〜3 件必須(重複不可)で、
- *   いずれも元の日から2週間以内・元の日時とは別
+ *   いずれも元の日から前後 RESCHEDULE_RANGE_DAYS 日以内・元の日時とは別
  */
 export function validateLateChangeRequest(booking: Booking, input: LateChangeInput): {
   option: LateChangeOption;
@@ -99,7 +105,7 @@ export function validateLateChangeRequest(booking: Booking, input: LateChangeInp
   if (!input.option || !LATE_CHANGE_OPTIONS.includes(input.option)) {
     throw new DomainError(
       'late_change_requires_request',
-      '対応方法(承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う)を選択してください',
+      `対応方法(承認を求める / ${daysLabel(RESCHEDULE_RANGE_DAYS)}以内の別日に振替 / キャンセルフィーを支払う)を選択してください`,
       { field: 'option', allowed: LATE_CHANGE_OPTIONS },
     );
   }

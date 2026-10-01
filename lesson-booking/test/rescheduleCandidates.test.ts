@@ -8,9 +8,10 @@ beforeEach(async () => {
 
 // 今 = 2026-10-01(木) 09:00 JST。10/6 は直前(承認制)
 const NEAR = jst('2026-10-06T10:00:00');
+// 元の日(10/6)から前後7日以内
 const C1 = jst('2026-10-13T10:00:00');
-const C2 = jst('2026-10-14T11:00:00');
-const C3 = jst('2026-10-15T14:00:00');
+const C2 = jst('2026-10-12T11:00:00');
+const C3 = jst('2026-10-09T14:00:00');
 
 async function lateBooking() {
   return w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: NEAR });
@@ -34,9 +35,9 @@ describe('振替の第1〜第3希望', () => {
     if (r.type !== 'pending_approval') throw new Error('unexpected');
     expect(r.request.proposedStartAts).toEqual([C2, C1, C3].map((d) => d.toISOString()));
     const text = w.mail.to('teacher@example.com')[0]?.text ?? '';
-    expect(text).toContain('第1希望: 2026/10/14(水) 11:00');
+    expect(text).toContain('第1希望: 2026/10/12(月) 11:00');
     expect(text).toContain('第2希望: 2026/10/13(火) 10:00');
-    expect(text).toContain('第3希望: 2026/10/15(木) 14:00');
+    expect(text).toContain('第3希望: 2026/10/9(金) 14:00');
   });
 
   it('0 件・4 件以上・重複・今と同じ日時・範囲外は申請できない', async () => {
@@ -45,7 +46,8 @@ describe('振替の第1〜第3希望', () => {
     await expect(reschedule(b.id, [C1, C2, C3, jst('2026-10-16T10:00:00')])).rejects.toMatchObject({ code: 'validation' });
     await expect(reschedule(b.id, [C1, C1])).rejects.toMatchObject({ code: 'validation' });
     await expect(reschedule(b.id, [C1, NEAR])).rejects.toMatchObject({ code: 'validation' });
-    await expect(reschedule(b.id, [C1, jst('2026-10-21T10:00:00')])).rejects.toMatchObject({ code: 'validation' });
+    // 元の日から 7 日 1 時間後は範囲外
+    await expect(reschedule(b.id, [C1, jst('2026-10-13T11:00:00')])).rejects.toMatchObject({ code: 'validation' });
   });
 
   it('埋まっている候補があると、何番目の希望かを示して拒否する', async () => {
@@ -70,7 +72,7 @@ describe('振替の第1〜第3希望', () => {
     expect(booking.startAt).toBe(C2.toISOString());
     expect(request.approvedStartAt).toBe(C2.toISOString());
     expect(w.calendar.listEvents()[0]?.startAt).toBe(C2.toISOString());
-    expect(w.mail.to('student@example.com')[0]?.text).toContain('変更後: 2026/10/14(水) 11:00〜12:00');
+    expect(w.mail.to('student@example.com')[0]?.text).toContain('変更後: 2026/10/12(月) 11:00〜12:00');
   });
 
   it('候補が 1 つなら選ばなくても承認できる', async () => {

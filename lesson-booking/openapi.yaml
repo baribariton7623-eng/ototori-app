@@ -48,7 +48,7 @@ paths:
                         limits: { type: object }
                   bookingHorizonDays: { type: integer, example: 40 }
                   lateChangeThresholdDays: { type: integer, example: 14 }
-                  rescheduleRangeDays: { type: integer, example: 14 }
+                  rescheduleRangeDays: { type: integer, example: 7, description: 振替先の範囲(元のレッスン日から前後の日数) }
                   feeMethods:
                     type: array
                     items:
@@ -369,7 +369,7 @@ paths:
       description: |
         レッスン開始まで 14 日以上: 即時反映(200, type=applied)。
         14 日未満: message と option が必須。変更要求を作成して承認待ち(202, type=pending_approval)。
-        kind=reschedule または option=reschedule_within_two_weeks では proposedStartAts(第1〜第3希望、元の日から前後 14 日以内)が必須。
+        kind=reschedule または option=reschedule_within_two_weeks では proposedStartAts(第1〜第3希望、元の日から前後 7 日以内)が必須。
       requestBody:
         required: true
         content:
@@ -835,7 +835,7 @@ components:
     LateChangeOption:
       type: string
       enum: [request_approval, reschedule_within_two_weeks, pay_cancellation_fee]
-      description: 承認を求める / 2週間以内の別日に振替 / キャンセルフィーを支払う
+      description: 承認を求める / 1週間以内の別日に振替(値の名前は互換のため据え置き)/ キャンセルフィーを支払う
     Organization:
       type: object
       properties:

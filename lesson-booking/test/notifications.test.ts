@@ -49,12 +49,12 @@ describe('通知メール', () => {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: '出張が入りました',
-      proposedStartAts: [jst('2026-10-13T14:00:00')],
+      proposedStartAts: [jst('2026-10-12T14:00:00')],
     });
     const host = w.mail.to(TEACHER)[0];
     expect(host?.subject).toBe('【要承認】生徒B から日時変更の申請');
-    expect(host?.text).toContain('対応方法: 2週間以内の別日に振替を希望する');
-    expect(host?.text).toContain('第1希望: 2026/10/13(火) 14:00');
+    expect(host?.text).toContain('対応方法: 1週間以内の別日に振替を希望する');
+    expect(host?.text).toContain('第1希望: 2026/10/12(月) 14:00');
     expect(host?.text).toContain('出張が入りました');
     expect(host?.text).toContain('https://app.example.com/#/host');
     expect(w.mail.to(STUDENT)[0]?.subject).toContain('【申請受付】');

@@ -403,6 +403,7 @@ describe('支払い方法 API', () => {
     expect(JSON.stringify(pub.json)).not.toContain('7654321');
 
     const rules = await call('GET', '/rules', {});
+    expect(rules.json.rescheduleRangeDays).toBe(7);
     expect(rules.json.feeMethods.map((m: { label: string }) => m.label)).toEqual(['クレジットカード', '銀行振込', '次回レッスン時に手渡し']);
 
     const b = await call('POST', '/bookings', S4, { hostId: w.host.id, startAt: jst('2026-10-09T16:00:00').toISOString() });
@@ -435,13 +436,13 @@ describe('振替の希望日時 API', () => {
   it('第1〜第2希望で申請 → 講師に候補と空き状況 → 第2希望で承認', async () => {
     const b = await call('POST', '/bookings', S5, { hostId: w.host.id, startAt: jst('2026-10-02T11:00:00').toISOString() });
     expect(b.status).toBe(201);
-    const c1 = jst('2026-10-12T15:00:00').toISOString();
-    const c2 = jst('2026-10-13T15:00:00').toISOString();
+    const c1 = jst('2026-10-07T15:00:00').toISOString();
+    const c2 = jst('2026-10-08T15:00:00').toISOString();
     const tooMany = await call('POST', `/bookings/${b.json.id}/change`, S5, {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: 'x',
-      proposedStartAts: [c1, c2, jst('2026-10-14T15:00:00').toISOString(), jst('2026-10-15T15:00:00').toISOString()],
+      proposedStartAts: [c1, c2, jst('2026-10-05T15:00:00').toISOString(), jst('2026-10-06T15:00:00').toISOString()],
     });
     expect(tooMany.status).toBe(400);
     const req = await call('POST', `/bookings/${b.json.id}/change`, S5, {
@@ -474,9 +475,9 @@ describe('振替の希望日時 API', () => {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',
       message: 'x',
-      proposedStartAt: jst('2026-10-12T16:00:00').toISOString(),
+      proposedStartAt: jst('2026-10-07T16:00:00').toISOString(),
     });
     expect(req.status).toBe(202);
-    expect(req.json.request.proposedStartAts).toEqual([jst('2026-10-12T16:00:00').toISOString()]);
+    expect(req.json.request.proposedStartAts).toEqual([jst('2026-10-07T16:00:00').toISOString()]);
   });
 });

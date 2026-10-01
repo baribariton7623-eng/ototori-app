@@ -113,7 +113,7 @@ export type ChangeKind = 'cancel' | 'reschedule';
 /**
  * 直前(2週間以内)の変更時に生徒が選ぶ対応方法。
  * - request_approval: 事情を説明し、そのまま承認を求める
- * - reschedule_within_two_weeks: 元の日から2週間以内の別日へ振替を希望する
+ * - reschedule_within_two_weeks: 元の日から前後 RESCHEDULE_RANGE_DAYS 日(現在 7 日)以内の別日へ振替を希望する(値の名前は互換のため据え置き)
  * - pay_cancellation_fee: キャンセルフィーを支払う
  */
 export type LateChangeOption =

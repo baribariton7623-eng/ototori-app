@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DomainError } from '../src/domain/errors.js';
 import {
   BOOKING_HORIZON_DAYS,
+  LATE_CHANGE_OPTION_LABELS,
+  RESCHEDULE_RANGE_DAYS,
   isLateChange,
   isWithinBookingWindow,
   isWithinRescheduleRange,
@@ -45,14 +47,20 @@ describe('直前変更の判定(14日未満)', () => {
   });
 });
 
-describe('振替範囲(元の日から2週間以内)', () => {
+describe('振替範囲(元の日から前後7日以内)', () => {
   const original = jst('2026-10-10T10:00:00');
-  it('前後14日以内は可', () => {
-    expect(isWithinRescheduleRange(original, jst('2026-10-24T10:00:00'))).toBe(true);
-    expect(isWithinRescheduleRange(original, jst('2026-09-26T10:00:00'))).toBe(true);
+  it('範囲は 7 日', () => {
+    expect(RESCHEDULE_RANGE_DAYS).toBe(7);
+    expect(LATE_CHANGE_OPTION_LABELS.reschedule_within_two_weeks).toBe('1週間以内の別日に振替を希望する');
   });
-  it('14日を超えると不可', () => {
-    expect(isWithinRescheduleRange(original, jst('2026-10-24T11:00:00'))).toBe(false);
+  it('前後7日ちょうどまでは可', () => {
+    expect(isWithinRescheduleRange(original, jst('2026-10-17T10:00:00'))).toBe(true);
+    expect(isWithinRescheduleRange(original, jst('2026-10-03T10:00:00'))).toBe(true);
+  });
+  it('7日を超えると不可(1時間でも)', () => {
+    expect(isWithinRescheduleRange(original, jst('2026-10-17T11:00:00'))).toBe(false);
+    expect(isWithinRescheduleRange(original, jst('2026-10-03T09:00:00'))).toBe(false);
+    expect(isWithinRescheduleRange(original, jst('2026-10-24T10:00:00'))).toBe(false);
   });
 });
 
@@ -78,7 +86,7 @@ describe('直前変更要求の入力検証', () => {
       expect(v.proposedStartAts).toEqual([]);
     }
   });
-  it('振替希望は振替先が必須で、元の日から2週間以内', () => {
+  it('振替希望は振替先が必須で、元の日から前後7日以内', () => {
     expect(() =>
       validateLateChangeRequest(booking, { kind: 'cancel', option: 'reschedule_within_two_weeks', message: 'x', proposedStartAts: [] }),
     ).toThrowError(/希望日時を選んでください/);
@@ -89,7 +97,7 @@ describe('直前変更要求の入力検証', () => {
         message: 'x',
         proposedStartAts: [jst('2026-11-01T10:00:00')],
       }),
-    ).toThrowError(/14日以内/);
+    ).toThrowError(/7日以内/);
     const ok = validateLateChangeRequest(booking, {
       kind: 'reschedule',
       option: 'reschedule_within_two_weeks',

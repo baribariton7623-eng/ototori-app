@@ -152,13 +152,13 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
     expect(paid.cancellationFeeStatus).toBe('paid');
   });
 
-  it('「2週間以内の別日に振替」は振替先が必須で、承認時に予約日時とイベントが更新される', async () => {
+  it('「1週間以内の別日に振替」は振替先が必須で、承認時に予約日時とイベントが更新される', async () => {
     const b = await w.bookings.createBooking({ hostId: w.host.id, student: w.student, startAt: NEAR });
     await expect(
       w.bookings.requestChange({ bookingId: b.id, student: w.student, kind: 'reschedule', message: 'x', option: 'reschedule_within_two_weeks' }),
     ).rejects.toMatchObject({ code: 'validation' });
 
-    // 元の日(10/6)から14日超の 10/21 は不可
+    // 元の日(10/6)から7日超の 10/14 は不可
     await expect(
       w.bookings.requestChange({
         bookingId: b.id,
@@ -166,11 +166,11 @@ describe('キャンセル・変更(直前: 14日未満)', () => {
         kind: 'reschedule',
         message: 'x',
         option: 'reschedule_within_two_weeks',
-        proposedStartAts: [jst('2026-10-21T10:00:00')],
+        proposedStartAts: [jst('2026-10-14T10:00:00')],
       }),
     ).rejects.toMatchObject({ code: 'validation' });
 
-    const proposed = jst('2026-10-15T14:00:00');
+    const proposed = jst('2026-10-12T14:00:00');
     const r = await w.bookings.requestChange({
       bookingId: b.id,
       student: w.student,
