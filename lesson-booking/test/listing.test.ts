@@ -15,14 +15,15 @@ afterEach(() => api.close());
 
 describe('予約一覧の取得', () => {
   it(`過去分は ${PAST_BOOKINGS_DAYS} 日前まで。キャンセルフィー未払いの予約は古くても含める`, async () => {
-    const old = await insertBooking(w, jst('2026-05-01T10:00:00'), { status: 'cancelled' });
+    // 今 = 10/1。7/15 は 78 日前(60 日より前なので出さない)、8/15 は 47 日前
+    const old = await insertBooking(w, jst('2026-07-15T10:00:00'), { status: 'cancelled' });
     const oldUnpaid = await insertBooking(w, jst('2026-05-02T10:00:00'), {
       status: 'cancelled',
       cancellationFeeStatus: 'pending',
       cancellationFeeAmount: 3000,
       cancellationFeeMethod: 'bank_transfer',
     });
-    const recent = await insertBooking(w, jst('2026-08-01T10:00:00'));
+    const recent = await insertBooking(w, jst('2026-08-15T10:00:00'));
     const upcoming = await insertBooking(w, jst('2026-10-20T10:00:00'));
 
     const ids = (r: { json: { id: string }[] }) => r.json.map((b) => b.id);
@@ -35,7 +36,7 @@ describe('予約一覧の取得', () => {
 
     // since を指定すればさらに前も取れる
     const all = await api.call('GET', `/bookings?since=${encodeURIComponent('2026-01-01T00:00:00Z')}`, STUDENT);
-    expect(ids(all)).toEqual([old.id, oldUnpaid.id, recent.id, upcoming.id]);
+    expect(ids(all)).toEqual([oldUnpaid.id, old.id, recent.id, upcoming.id]);
     expect((await api.call('GET', '/bookings?since=yesterday', STUDENT)).status).toBe(400);
   });
 

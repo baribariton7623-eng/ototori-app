@@ -44,7 +44,7 @@ export function publicHost(h: Host) {
 export type FeeFields = { cancellationFeeStatus: string; cancellationFeeAmount: number | null; cancellationFeeMethod: string | null };
 
 /** 予約一覧に含める過去分の日数(既定)。キャンセルフィー未払いの予約は期間に関係なく返す */
-export const PAST_BOOKINGS_DAYS = 90;
+export const PAST_BOOKINGS_DAYS = 60;
 
 /** ?since=ISO日時 で過去分の起点を変えられる。既定は PAST_BOOKINGS_DAYS 日前 */
 export function listSince(req: Request, now: Date): Date {

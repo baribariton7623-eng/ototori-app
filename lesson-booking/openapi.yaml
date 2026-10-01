@@ -257,7 +257,7 @@ paths:
     parameters: [{ $ref: '#/components/parameters/hostId' }]
     get:
       tags: [host]
-      summary: 主催者の予約(生徒情報付き)。過去分は 90 日前まで、キャンセルフィー未払いは期間に関係なく含む
+      summary: 主催者の予約(生徒情報付き)。過去分は 60 日前まで、キャンセルフィー未払いは期間に関係なく含む
       parameters: [{ $ref: '#/components/parameters/since' }]
       responses:
         '200':
@@ -350,7 +350,7 @@ paths:
   /bookings:
     get:
       tags: [student]
-      summary: 自分の予約一覧(変更要求履歴付き)。過去分は 90 日前まで、キャンセルフィー未払いは期間に関係なく含む
+      summary: 自分の予約一覧(変更要求履歴付き)。過去分は 60 日前まで、キャンセルフィー未払いは期間に関係なく含む
       parameters: [{ $ref: '#/components/parameters/since' }]
       responses:
         '200':
@@ -849,7 +849,7 @@ components:
   parameters:
     hostId: { name: hostId, in: path, required: true, schema: { type: string } }
     id: { name: id, in: path, required: true, schema: { type: string } }
-    since: { name: since, in: query, description: 過去分の起点(既定は 90 日前), schema: { type: string, format: date-time } }
+    since: { name: since, in: query, description: 過去分の起点(既定は 60 日前), schema: { type: string, format: date-time } }
   responses:
     Error:
       description: エラー

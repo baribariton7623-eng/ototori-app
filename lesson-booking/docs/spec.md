@@ -262,7 +262,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | GET | `/me` | 自分の情報とロール |
 | DELETE | `/me` | 退会 `{confirm}`(主催者は URL 名、生徒はメールアドレス) |
 | POST | `/bookings` | 予約作成 `{hostId, startAt, note?}` → 201 |
-| GET | `/bookings?since=` | 自分の予約一覧(`requiresApprovalToChange`・変更要求履歴 `changeRequests` 付き)。過去分は既定で 90 日前まで(`since` で変更)、フィー未払いは期間に関係なく含む |
+| GET | `/bookings?since=` | 自分の予約一覧(`requiresApprovalToChange`・変更要求履歴 `changeRequests` 付き)。過去分は既定で 60 日前まで(`since` で変更)、フィー未払いは期間に関係なく含む |
 | GET | `/bookings/{id}` | 予約詳細 + 変更要求履歴 |
 | POST | `/bookings/{id}/change` | キャンセル/変更 `{kind, message?, option?, proposedStartAts?, feeMethod?}` → 200 `applied` / 202 `pending_approval`(旧形式の `proposedStartAt` 1 件も受け付ける) |
 | POST | `/bookings/{id}/fee-checkout` | 未払いキャンセルフィーの決済ページ URL `{successUrl, cancelUrl}` |
@@ -280,7 +280,7 @@ RLS は全テーブル有効。API サーバーが service role で接続し、�
 | DELETE | `/hosts/{hostId}/calendars/{id}` | 連携解除 |
 | GET/POST | `/hosts/{hostId}/availability-windows` | 営業時間枠一覧/追加 `{weekday, startTime, endTime}` |
 | DELETE | `/hosts/{hostId}/availability-windows/{id}` | 削除 |
-| GET | `/hosts/{hostId}/bookings?since=` | 予約一覧(生徒情報付き)。過去分は既定で 90 日前まで、フィー未払いは期間に関係なく含む |
+| GET | `/hosts/{hostId}/bookings?since=` | 予約一覧(生徒情報付き)。過去分は既定で 60 日前まで、フィー未払いは期間に関係なく含む |
 | GET | `/hosts/{hostId}/change-requests/count` | 承認待ちの件数 `{pending}`(タブのバッジ用。空き確認はしない) |
 | GET | `/hosts/{hostId}/change-requests?status=pending\|approved\|rejected\|all` | 変更要求一覧(予約・生徒・3 択ラベル付き) |
 | POST | `/hosts/{hostId}/change-requests/{id}/decision` | `{decision: approve\|reject, note?, startAt?}`(振替の承認で希望日時から選んだ振替先) |
