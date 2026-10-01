@@ -65,14 +65,24 @@ export class AccountService {
     return { deletedHost: input.host !== null, deletedStudent: student !== null, cancelledBookings };
   }
 
+  /**
+   * 生徒の退会前チェック。退会すると予約の記録が消えるため、講師との精算が残っているものは先に済ませてもらう
+   * - 今後の確定予約(直前キャンセルの承認ルールを退会で回避させない)
+   * - 未払いのキャンセルフィー(講師側の請求記録が消えないように)
+   */
   private async assertNoFutureStudentBookings(student: Student): Promise<void> {
     const now = this.clock.now().getTime();
-    const future = (await this.repos.bookings.listByStudent(student.id)).filter(
-      (b) => b.status === 'confirmed' && new Date(b.endAt).getTime() > now,
-    );
+    const bookings = await this.repos.bookings.listByStudent(student.id);
+    const future = bookings.filter((b) => b.status === 'confirmed' && new Date(b.endAt).getTime() > now);
     if (future.length > 0) {
       throw new DomainError('invalid_state', `今後の予約が${future.length}件あります。すべてキャンセルしてから退会してください`, {
         futureBookings: future.map((b) => b.id),
+      });
+    }
+    const unpaid = bookings.filter((b) => b.cancellationFeeStatus === 'pending');
+    if (unpaid.length > 0) {
+      throw new DomainError('invalid_state', `未払いのキャンセルフィーが${unpaid.length}件あります。お支払いが済んでから退会してください`, {
+        unpaidFees: unpaid.map((b) => b.id),
       });
     }
   }

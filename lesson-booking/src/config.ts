@@ -18,6 +18,8 @@ const schema = z.object({
   GOOGLE_CLIENT_ID: z.string().default(''),
   GOOGLE_CLIENT_SECRET: z.string().default(''),
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:8787/google/callback'),
+  /** Google 連携の state に署名する鍵(32 文字以上推奨)。開発時は未設定なら起動ごとにランダム */
+  OAUTH_STATE_SECRET: z.string().default(''),
   WEB_DIST: z.string().default('web/dist'),
   /** フロントエンドの公開 URL(末尾スラッシュなし)。公開予約ページ URL・課金のリダイレクト先に使う */
   APP_BASE_URL: z.string().default('http://localhost:8787'),
@@ -56,6 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (cfg.CALENDAR === 'google') {
     if (!cfg.GOOGLE_CLIENT_ID) missing.push('GOOGLE_CLIENT_ID');
     if (!cfg.GOOGLE_CLIENT_SECRET) missing.push('GOOGLE_CLIENT_SECRET');
+    if (cfg.NODE_ENV === 'production' && cfg.OAUTH_STATE_SECRET.length < 32) missing.push('OAUTH_STATE_SECRET(32 文字以上)');
   }
   if (cfg.MAIL === 'resend') {
     if (!cfg.RESEND_API_KEY) missing.push('RESEND_API_KEY');

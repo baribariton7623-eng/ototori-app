@@ -85,17 +85,40 @@ export class FeeService {
     await this.repos.hosts.update(hostId, { stripeConnectAccountId: accountId, connectChargesEnabled: true });
   }
 
-  /** 決済完了の反映。Webhook の再送に備えて冪等にする */
-  async markPaidOnline(bookingId: string, accountId: string | null): Promise<Booking | null> {
+  /**
+   * 決済完了の反映(Connect Webhook)。
+   * - 決済したアカウントが、予約の講師の連携中の Stripe アカウントと一致すること(必須)。
+   *   講師が連携を外している場合も拒否する(他の連結アカウントが metadata を偽って消し込めないように)
+   * - 未払い(pending)の予約だけを支払済にする。Webhook の再送に備えて、支払済なら何もしない
+   */
+  async markPaidOnline(bookingId: string, accountId: string): Promise<Booking | null> {
     const booking = await this.repos.bookings.findById(bookingId);
     if (!booking) return null;
     const host = await this.repos.hosts.findById(booking.hostId);
     if (!host) return null;
-    // 別の講師アカウントの決済で消し込まれないようにする
-    if (accountId && host.stripeConnectAccountId && host.stripeConnectAccountId !== accountId) {
-      throw new DomainError('forbidden', '決済アカウントが予約の講師と一致しません');
+    if (!accountId || !host.stripeConnectAccountId || host.stripeConnectAccountId !== accountId) {
+      throw new DomainError('forbidden', '決済アカウントが予約の講師の Stripe アカウントと一致しません', {
+        bookingId,
+        accountId: accountId || null,
+      });
     }
+    return this.markPaid(booking, host);
+  }
+
+  /** FakeFeePaymentProvider 用: 講師の連携アカウントで決済されたものとして扱う */
+  async markPaidForDev(bookingId: string): Promise<Booking | null> {
+    const booking = await this.repos.bookings.findById(bookingId);
+    if (!booking) return null;
+    const host = await this.repos.hosts.findById(booking.hostId);
+    if (!host?.stripeConnectAccountId) return null;
+    return this.markPaidOnline(bookingId, host.stripeConnectAccountId);
+  }
+
+  private async markPaid(booking: Booking, host: Host): Promise<Booking> {
     if (booking.cancellationFeeStatus === 'paid') return booking;
+    if (booking.cancellationFeeStatus !== 'pending') {
+      throw new DomainError('invalid_state', 'この予約に未払いのキャンセルフィーはありません', { bookingId: booking.id });
+    }
     const updated = await this.repos.bookings.update(booking.id, { cancellationFeeStatus: 'paid' });
     const student = await this.repos.students.findById(booking.studentId);
     if (student) await safeNotify(() => this.notifier.feePaid({ host, student, booking: updated }));

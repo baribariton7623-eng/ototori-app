@@ -494,7 +494,7 @@ function hostRoutes(deps: AppDeps): Router {
     }));
     r.get('/billing/fake/fee-paid', wrap(async (req, res) => {
       const q = z.object({ bookingId: z.string(), redirect: z.string() }).parse(req.query);
-      await deps.fees.markPaidOnline(q.bookingId, null);
+      await deps.fees.markPaidForDev(q.bookingId);
       res.redirect(q.redirect);
     }));
   }
@@ -766,7 +766,7 @@ function googleRoutes(deps: AppDeps): Router {
   r.get('/hosts/:hostId/google/connect', wrap(async (req, res) => {
     const host = requireHost(req, param(req, 'hostId'));
     if (!google) throw new DomainError('calendar_error', 'CALENDAR=google が無効です');
-    res.json({ url: google.authUrl(host.id) });
+    res.json({ url: google.authUrl(host.id, deps.clock.now()) });
   }));
 
   r.get('/hosts/:hostId/google/status', wrap(async (req, res) => {
@@ -786,7 +786,9 @@ function googleRoutes(deps: AppDeps): Router {
   r.get('/google/callback', wrap(async (req, res) => {
     if (!google) throw new DomainError('calendar_error', 'CALENDAR=google が無効です');
     const q = z.object({ code: z.string().min(1), state: z.string().min(1) }).parse(req.query);
-    await google.handleCallback(q.state, q.code);
+    // state は署名付き。偽造・期限切れは handleCallback が拒否する
+    const hostId = await google.handleCallback(q.state, q.code, deps.clock.now());
+    if (!(await deps.repos.hosts.findById(hostId))) throw new DomainError('not_found', '主催者が見つかりません');
     res.type('text/plain').send('Google カレンダーと連携しました。この画面は閉じてかまいません。');
   }));
 

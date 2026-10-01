@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { FakeBillingProvider } from './billing/FakeBillingProvider.js';
@@ -40,7 +41,13 @@ const repos =
 const google =
   cfg.CALENDAR === 'google'
     ? new GoogleCalendarClient(
-        { clientId: cfg.GOOGLE_CLIENT_ID, clientSecret: cfg.GOOGLE_CLIENT_SECRET, redirectUri: cfg.GOOGLE_REDIRECT_URI },
+        {
+          clientId: cfg.GOOGLE_CLIENT_ID,
+          clientSecret: cfg.GOOGLE_CLIENT_SECRET,
+          redirectUri: cfg.GOOGLE_REDIRECT_URI,
+          // 本番では loadConfig が OAUTH_STATE_SECRET を必須にしている
+          stateSecret: cfg.OAUTH_STATE_SECRET || randomBytes(32).toString('hex'),
+        },
         repos.googleCredentials,
       )
     : undefined;

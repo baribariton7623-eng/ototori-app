@@ -2,12 +2,15 @@ import { google, type calendar_v3 } from 'googleapis';
 import { DomainError } from '../domain/errors.js';
 import type { BusyInterval } from '../domain/types.js';
 import type { GoogleCredentialStore } from '../repo/Repository.js';
+import { signState, verifyState } from '../security/signedState.js';
 import type { CalendarClient, CalendarEventInput } from './CalendarClient.js';
 
 export interface GoogleOAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  /** OAuth の state に署名する鍵 */
+  stateSecret: string;
 }
 
 export const GOOGLE_SCOPES = [
@@ -26,25 +29,39 @@ export class GoogleCalendarClient implements CalendarClient {
     private readonly credentials: GoogleCredentialStore,
   ) {}
 
-  /** 主催者に踏んでもらう認可URL。state に hostId を載せる */
-  authUrl(hostId: string): string {
+  /**
+   * 主催者に踏んでもらう認可URL。state には署名付きの講師 ID を載せる
+   * (callback はログイン情報なしで呼ばれるため、署名がないと他人の講師 ID で連携を上書きできてしまう)
+   */
+  authUrl(hostId: string, now: Date = new Date()): string {
     const client = this.newOAuthClient();
     return client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
       scope: GOOGLE_SCOPES,
-      state: hostId,
+      state: signState(this.oauth.stateSecret, hostId, now),
     });
   }
 
-  /** 認可コードを refresh token に交換して保存する */
-  async handleCallback(hostId: string, code: string): Promise<void> {
+  /** state の署名を確かめて対象の講師 ID を返す。不正・期限切れなら例外 */
+  hostIdFromState(state: string, now: Date = new Date()): string {
+    const hostId = verifyState(this.oauth.stateSecret, state, now);
+    if (!hostId) {
+      throw new DomainError('forbidden', '連携の手続きが無効か期限切れです。設定画面の「Google と連携する」からやり直してください');
+    }
+    return hostId;
+  }
+
+  /** 認可コードを refresh token に交換して、state が示す講師に保存する */
+  async handleCallback(state: string, code: string, now: Date = new Date()): Promise<string> {
+    const hostId = this.hostIdFromState(state, now);
     const client = this.newOAuthClient();
     const { tokens } = await client.getToken(code);
     if (!tokens.refresh_token) {
       throw new DomainError('calendar_error', 'Google から refresh token が返されませんでした。再度「同意」からやり直してください');
     }
     await this.credentials.saveRefreshToken(hostId, tokens.refresh_token);
+    return hostId;
   }
 
   /**

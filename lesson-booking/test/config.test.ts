@@ -14,6 +14,7 @@ const prodSafe = {
   SUPABASE_JWT_SECRET: 's',
   GOOGLE_CLIENT_ID: 'g',
   GOOGLE_CLIENT_SECRET: 'g',
+  OAUTH_STATE_SECRET: 'x'.repeat(32),
   RESEND_API_KEY: 'r',
   MAIL_FROM: 'x <noreply@example.jp>',
   STRIPE_SECRET_KEY: 'sk',
@@ -54,6 +55,11 @@ describe('本番の安全装置', () => {
     const { errors, warnings } = productionProblems(cfg);
     expect(errors).toEqual([]);
     expect(warnings).toHaveLength(3);
+  });
+
+  it('本番で Google 連携を使うなら、32 文字以上の OAUTH_STATE_SECRET が必要', () => {
+    expect(() => loadConfig({ ...prodSafe, OAUTH_STATE_SECRET: '' })).toThrow(/OAUTH_STATE_SECRET/);
+    expect(() => loadConfig({ ...prodSafe, OAUTH_STATE_SECRET: 'short' })).toThrow(/OAUTH_STATE_SECRET/);
   });
 
   it('FAKE_NOW の形式が不正なら起動しない', () => {
